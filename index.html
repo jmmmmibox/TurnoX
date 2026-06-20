@@ -1186,7 +1186,7 @@ async function loadAllData() {
         order: 'orden.asc'
       }),
       sbQuery('polivalencias', {
-        select: 'empleado_id,area_id'
+        select: 'id,empleado_id,area_id'
       }),
     ]);
 
@@ -1545,7 +1545,7 @@ function renderEmpRows(emps) {
     row += '</div></td>';
     row += '<td><code style="font-size:12px;background:var(--bg);padding:2px 6px;border-radius:4px">' + emp.username + '</code></td>';
     row += '<td><span class="turno-badge ' + (t || 'D') + '">' + (t || 'D') + '</span></td>';
-    row += '<td><button class="btn btn-sm btn-ghost" onclick="showToast(\'Próximamente\')">Editar</button></td></tr>';
+    row += '<td><button class="btn btn-sm btn-ghost" onclick="modalEditarEmpleado(\'' + emp.id + '\')">Editar</button></td></tr>';
     return row;
   }).join('');
 }
@@ -1704,24 +1704,36 @@ function renderConfiguracion() {
   html += '</div>';
 
   if (tab === 'ciclos') {
-    html += '<div class="card"><div class="card-header"><span class="card-title">Ciclos de turno 2026</span></div><div class="card-body">';
-    html += '<div class="alert alert-info mb-4"><span>El sistema genera automáticamente el calendario según estos ciclos.</span></div>';
+    html += '<div class="card"><div class="card-header"><span class="card-title">Ciclos de turno 2026</span>';
+    html += '<button class="btn btn-sm btn-blue" onclick="guardarTodosCiclos()">Guardar cambios</button></div><div class="card-body">';
+    html += '<div class="alert alert-info mb-4"><span>Edita fechas y turno inicial. Pulsa "Guardar cambios" para aplicar.</span></div>';
     state.letras.forEach(l => {
       const ciclos = state.ciclosConfig.filter(c => c.letra_id === l.id).sort((a, b) => a.orden - b.orden);
-      html += '<div style="margin-bottom:20px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+      html += '<div style="margin-bottom:20px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+      html += '<div style="display:flex;align-items:center;gap:8px">';
       html += '<span class="letra-badge" style="background:' + l.color + '22;color:' + l.color + '">' + l.nombre + '</span>';
       html += '<span style="font-size:13px;font-weight:600">Letra ' + l.nombre + '</span></div>';
+      html += '<button class="btn btn-sm btn-outline" onclick="modalNuevoCiclo(\'' + l.id + '\',\'' + l.nombre + '\')">+ Añadir período</button></div>';
       html += '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--bg)">';
-      html += '<th style="padding:6px 10px;text-align:left">Orden</th><th style="padding:6px 10px;text-align:left">Tipo</th>';
+      html += '<th style="padding:6px 10px;text-align:left">#</th><th style="padding:6px 10px;text-align:left">Tipo</th>';
       html += '<th style="padding:6px 10px;text-align:left">Inicio</th><th style="padding:6px 10px;text-align:left">Fin</th>';
-      html += '<th style="padding:6px 10px;text-align:left">Turno inicial</th></tr></thead><tbody>';
+      html += '<th style="padding:6px 10px;text-align:left">Turno ini.</th><th style="padding:6px 10px;text-align:left"></th></tr></thead><tbody>';
       ciclos.forEach(c => {
         html += '<tr style="border-bottom:1px solid var(--border)">';
         html += '<td style="padding:6px 10px">' + c.orden + '</td>';
-        html += '<td style="padding:6px 10px"><span class="status-badge ' + (c.tipo === 'turno' ? 'approved' : 'pending') + '">' + c.tipo + '</span></td>';
-        html += '<td style="padding:6px 10px">' + c.fecha_inicio + '</td>';
-        html += '<td style="padding:6px 10px">' + c.fecha_fin + '</td>';
-        html += '<td style="padding:6px 10px">' + (c.turno_inicial || '—') + '</td></tr>';
+        html += '<td style="padding:6px 10px"><select class="form-input" data-ciclo-id="' + c.id + '" data-field="tipo" style="padding:3px 6px;font-size:11px;width:90px">';
+        html += '<option value="turno"' + (c.tipo === 'turno' ? ' selected' : '') + '>turno</option>';
+        html += '<option value="refuerzo"' + (c.tipo === 'refuerzo' ? ' selected' : '') + '>refuerzo</option></select></td>';
+        html += '<td style="padding:6px 10px"><input type="date" value="' + c.fecha_inicio + '" data-ciclo-id="' + c.id + '" data-field="fecha_inicio" class="form-input" style="padding:3px 6px;font-size:11px;width:130px"></td>';
+        html += '<td style="padding:6px 10px"><input type="date" value="' + c.fecha_fin + '" data-ciclo-id="' + c.id + '" data-field="fecha_fin" class="form-input" style="padding:3px 6px;font-size:11px;width:130px"></td>';
+        html += '<td style="padding:6px 10px">';
+        if (c.tipo === 'turno') {
+          html += '<select data-ciclo-id="' + c.id + '" data-field="turno_inicial" class="form-input" style="padding:3px 6px;font-size:11px;width:55px">';
+          ['M','T','N','D'].forEach(t => { html += '<option' + (c.turno_inicial === t ? ' selected' : '') + '>' + t + '</option>'; });
+          html += '</select>';
+        } else { html += '<span style="color:var(--text3)">—</span>'; }
+        html += '</td>';
+        html += '<td style="padding:6px 10px"><button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarCiclo(\'' + c.id + '\')">✕</button></td></tr>';
       });
       html += '</tbody></table></div>';
     });
@@ -1737,13 +1749,16 @@ function renderConfiguracion() {
       html += '<span class="festivo-date">' + formatDateES(f.fecha) + '</span>';
       html += '<span class="festivo-name">' + f.nombre + '</span>';
       html += '<span class="festivo-ambito ambito-' + (f.ambito || 'nacional') + '">' + (f.ambito || 'nacional') + '</span>';
-      html += '</div></div>';
+      html += '</div>';
+      html += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarFestivo(\'' + f.id + '\')">Eliminar</button>';
+      html += '</div>';
     });
     html += '</div></div>';
   }
 
   if (tab === 'areas') {
-    html += '<div class="card"><div class="card-header"><span class="card-title">Áreas de trabajo</span></div><div class="card-body">';
+    html += '<div class="card"><div class="card-header"><span class="card-title">Áreas de trabajo</span>';
+    html += '<button class="btn btn-sm btn-blue" onclick="modalNuevaArea()">+ Añadir área</button></div><div class="card-body">';
     state.areas.forEach(a => {
       html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">';
       html += '<div style="display:flex;align-items:center;gap:10px">';
@@ -2053,6 +2068,217 @@ async function guardarTurnoEdit(empId, fecha, nuevoTurno) {
     closeModal();
     showToast('Turno actualizado', 'success');
     renderCalendario();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
+// EDITAR EMPLEADO
+// =====================================================================
+function modalEditarEmpleado(empId) {
+  const emp = state.empleados.find(e => e.id === empId);
+  if (!emp) return;
+  const empPolivs = state.polivalencias.filter(p => p.empleado_id === empId).map(p => p.area_id);
+
+  let body = '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="ee-nombre" value="' + emp.nombre + '"></div>';
+  body += '<div class="form-group"><label class="form-label">Apellidos</label><input class="form-input" id="ee-apellidos" value="' + emp.apellidos + '"></div></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Usuario</label><input class="form-input" id="ee-user" value="' + emp.username + '"></div>';
+  body += '<div class="form-group"><label class="form-label">Contraseña</label><input class="form-input" id="ee-pass" placeholder="Dejar vacío para no cambiar"></div></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Letra</label><select class="form-input" id="ee-letra">';
+  state.letras.forEach(l => { body += '<option value="' + l.id + '"' + (emp.letra_id === l.id ? ' selected' : '') + '>Letra ' + l.nombre + '</option>'; });
+  body += '</select></div>';
+  body += '<div class="form-group"><label class="form-label">Área principal</label><select class="form-input" id="ee-area">';
+  state.areas.forEach(a => { body += '<option value="' + a.id + '"' + (emp.area_principal_id === a.id ? ' selected' : '') + '>' + a.nombre + '</option>'; });
+  body += '</select></div></div>';
+
+  // Polivalencias como checkboxes
+  const areasPoliv = state.areas.filter(a => a.permite_polivalencia);
+  body += '<div class="form-group"><label class="form-label">Polivalencias</label>';
+  body += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  areasPoliv.forEach(a => {
+    const checked = empPolivs.includes(a.id) ? ' checked' : '';
+    body += '<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:4px 8px;border:1px solid var(--border);border-radius:6px">';
+    body += '<input type="checkbox" class="ee-poliv" value="' + a.id + '"' + checked + '> ' + a.nombre + '</label>';
+  });
+  body += '</div></div>';
+
+  body += '<div class="form-group"><label class="form-label">Teléfono</label><input class="form-input" id="ee-tel" value="' + (emp.telefono || '') + '"></div>';
+  body += '<div class="form-group"><label class="form-label">Notas internas</label><textarea class="form-input" id="ee-notas" rows="2">' + (emp.notas || '') + '</textarea></div>';
+
+  const footer = '<button class="btn btn-red" onclick="desactivarEmpleado(\'' + empId + '\')">Desactivar</button>' +
+    '<div style="flex:1"></div>' +
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="guardarEmpleado(\'' + empId + '\')">Guardar</button>';
+  openModal('Editar empleado', body, footer);
+}
+
+async function guardarEmpleado(empId) {
+  const data = {
+    nombre: document.getElementById('ee-nombre').value.trim(),
+    apellidos: document.getElementById('ee-apellidos').value.trim(),
+    username: document.getElementById('ee-user').value.trim(),
+    letra_id: document.getElementById('ee-letra').value,
+    area_principal_id: document.getElementById('ee-area').value,
+    telefono: document.getElementById('ee-tel').value.trim() || null,
+    notas: document.getElementById('ee-notas').value.trim() || null,
+  };
+  const pass = document.getElementById('ee-pass').value;
+  if (pass) data.password_hash = pass;
+  if (!data.nombre || !data.apellidos || !data.username) { showToast('Campos obligatorios', 'error'); return; }
+
+  try {
+    await sbUpdate('empleados', empId, data);
+
+    // Actualizar polivalencias: borrar las existentes y crear las nuevas
+    const oldPolivs = state.polivalencias.filter(p => p.empleado_id === empId);
+    for (const p of oldPolivs) { await sbDelete('polivalencias', p.id); }
+
+    const checkboxes = document.querySelectorAll('.ee-poliv:checked');
+    for (const cb of checkboxes) {
+      if (cb.value !== data.area_principal_id) {
+        await sbInsert('polivalencias', { empleado_id: empId, area_id: cb.value });
+      }
+    }
+
+    // Recargar datos
+    state.empleados = await sbQuery('empleados', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID, 'activo=eq.true'], order: 'nombre.asc' });
+    state.polivalencias = await sbQuery('polivalencias', { select: '*' });
+    closeModal();
+    renderEmpleados();
+    showToast('Empleado actualizado', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function desactivarEmpleado(empId) {
+  if (!confirm('¿Desactivar este empleado? No aparecerá en el calendario.')) return;
+  try {
+    await sbUpdate('empleados', empId, { activo: false });
+    state.empleados = await sbQuery('empleados', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID, 'activo=eq.true'], order: 'nombre.asc' });
+    closeModal();
+    renderEmpleados();
+    showToast('Empleado desactivado', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
+// CICLOS - GUARDAR, AÑADIR, ELIMINAR
+// =====================================================================
+async function guardarTodosCiclos() {
+  const inputs = document.querySelectorAll('[data-ciclo-id]');
+  const cambios = {};
+  inputs.forEach(el => {
+    const id = el.getAttribute('data-ciclo-id');
+    const field = el.getAttribute('data-field');
+    if (!cambios[id]) cambios[id] = {};
+    cambios[id][field] = el.value;
+  });
+
+  try {
+    for (const [id, data] of Object.entries(cambios)) {
+      await sbUpdate('ciclos_config', id, data);
+    }
+    state.ciclosConfig = await sbQuery('ciclos_config', { select: '*', order: 'orden.asc' });
+    showToast('Ciclos guardados', 'success');
+    renderConfiguracion();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalNuevoCiclo(letraId, letraNombre) {
+  const ciclosExistentes = state.ciclosConfig.filter(c => c.letra_id === letraId);
+  const nuevoOrden = ciclosExistentes.length + 1;
+
+  let body = '<div class="form-group"><label class="form-label">Letra</label><input class="form-input" value="Letra ' + letraNombre + '" disabled></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Tipo</label><select class="form-input" id="nc-tipo" onchange="document.getElementById(\'nc-turno-wrap\').style.display=this.value===\'turno\'?\'block\':\'none\'">';
+  body += '<option value="turno">Turno</option><option value="refuerzo">Refuerzo</option></select></div>';
+  body += '<div class="form-group"><label class="form-label">Orden</label><input class="form-input" id="nc-orden" type="number" value="' + nuevoOrden + '"></div></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Fecha inicio</label><input type="date" class="form-input" id="nc-inicio"></div>';
+  body += '<div class="form-group"><label class="form-label">Fecha fin</label><input type="date" class="form-input" id="nc-fin"></div></div>';
+  body += '<div class="form-group" id="nc-turno-wrap"><label class="form-label">Turno inicial</label><select class="form-input" id="nc-turno">';
+  body += '<option value="M">M - Mañana</option><option value="T">T - Tarde</option><option value="N">N - Noche</option></select></div>';
+
+  openModal('Añadir período — Letra ' + letraNombre, body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="crearCiclo(\'' + letraId + '\')">Crear</button>');
+}
+
+async function crearCiclo(letraId) {
+  const tipo = document.getElementById('nc-tipo').value;
+  const data = {
+    letra_id: letraId,
+    "año": 2026,
+    orden: parseInt(document.getElementById('nc-orden').value),
+    tipo: tipo,
+    fecha_inicio: document.getElementById('nc-inicio').value,
+    fecha_fin: document.getElementById('nc-fin').value,
+    turno_inicial: tipo === 'turno' ? document.getElementById('nc-turno').value : null,
+  };
+  if (!data.fecha_inicio || !data.fecha_fin) { showToast('Indica las fechas', 'error'); return; }
+  try {
+    await sbInsert('ciclos_config', data);
+    state.ciclosConfig = await sbQuery('ciclos_config', { select: '*', order: 'orden.asc' });
+    closeModal();
+    renderConfiguracion();
+    showToast('Período creado', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function eliminarCiclo(id) {
+  if (!confirm('¿Eliminar este período?')) return;
+  try {
+    await sbDelete('ciclos_config', id);
+    state.ciclosConfig = await sbQuery('ciclos_config', { select: '*', order: 'orden.asc' });
+    renderConfiguracion();
+    showToast('Período eliminado', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
+// FESTIVOS - ELIMINAR
+// =====================================================================
+async function eliminarFestivo(id) {
+  if (!confirm('¿Eliminar este festivo?')) return;
+  try {
+    await sbDelete('festivos', id);
+    state.festivos = await sbQuery('festivos', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] });
+    renderConfiguracion();
+    showToast('Festivo eliminado', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
+// AREAS - AÑADIR
+// =====================================================================
+function modalNuevaArea() {
+  let body = '<div class="form-group"><label class="form-label">Nombre del área</label><input class="form-input" id="narea-nombre" placeholder="Ej: Área C"></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Color</label><input type="color" class="form-input" id="narea-color" value="#3B82F6" style="height:38px;padding:3px"></div>';
+  body += '<div class="form-group"><label class="form-label">¿Permite polivalencias?</label><select class="form-input" id="narea-poliv">';
+  body += '<option value="true">Sí</option><option value="false">No</option></select></div></div>';
+
+  openModal('Añadir área', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="crearArea()">Crear</button>');
+}
+
+async function crearArea() {
+  const nombre = document.getElementById('narea-nombre').value.trim();
+  if (!nombre) { showToast('Indica el nombre', 'error'); return; }
+  try {
+    await sbInsert('areas', {
+      planta_id: PLANTA_ID,
+      nombre: nombre,
+      color: document.getElementById('narea-color').value,
+      permite_polivalencia: document.getElementById('narea-poliv').value === 'true',
+      orden: state.areas.length + 1,
+    });
+    state.areas = await sbQuery('areas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'orden.asc' });
+    closeModal();
+    renderConfiguracion();
+    showToast('Área creada', 'success');
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
