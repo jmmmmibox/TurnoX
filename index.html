@@ -931,118 +931,132 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const PLANTA_ID = 'a1b2c3d4-0001-0001-0001-000000000001';
 
 // =====================================================================
-// SUPABASE CLIENT
+// SUPABASE REST CLIENT
 // =====================================================================
-const sb = {
-  async query(table, params = {}) {
-    let url = `${SUPABASE_URL}/rest/v1/${table}?`;
-    if (params.select) url += `select=${params.select}&`;
-    if (params.filter) Object.entries(params.filter).forEach(([k,v]) => url += `${k}=${v}&`);
-    if (params.order) url += `order=${params.order}&`;
-    if (params.limit) url += `limit=${params.limit}&`;
-    const token = this._token || SUPABASE_KEY;
-    const res = await fetch(url, { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${token}` } });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  },
-  async insert(table, data) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  },
-  async update(table, id, data) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
-      method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  },
-  async delete(table, id) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
-      method: 'DELETE',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return true;
-  },
-  async rpc(fn, params = {}) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(params)
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  },
-  // Auth
-  async signIn(email, password) {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    return res.json();
-  },
-  async signUp(email, password) {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    return res.json();
+let authToken = null;
+
+async function sbQuery(table, opts = {}) {
+  let url = SUPABASE_URL + '/rest/v1/' + table + '?';
+  if (opts.select) url += 'select=' + opts.select + '&';
+  if (opts.filters) {
+    opts.filters.forEach(f => { url += f + '&'; });
   }
-};
+  if (opts.order) url += 'order=' + opts.order + '&';
+  if (opts.limit) url += 'limit=' + opts.limit + '&';
+  const token = authToken || SUPABASE_KEY;
+  const res = await fetch(url, {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + token }
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    console.error('sbQuery error:', table, txt);
+    throw new Error(txt);
+  }
+  return res.json();
+}
+
+async function sbInsert(table, data) {
+  const token = authToken || SUPABASE_KEY;
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + table, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation'
+    },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function sbUpdate(table, id, data) {
+  const token = authToken || SUPABASE_KEY;
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?id=eq.' + id, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation'
+    },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function sbDelete(table, id) {
+  const token = authToken || SUPABASE_KEY;
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?id=eq.' + id, {
+    method: 'DELETE',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + token }
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return true;
+}
+
+async function sbSignIn(email, password) {
+  const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  return res.json();
+}
 
 // =====================================================================
 // STATE
 // =====================================================================
 let state = {
-  user: null,       // { tipo: 'gestor'|'empleado', id, nombre, ... }
+  user: null,
   empleados: [],
   areas: [],
   letras: [],
   festivos: [],
   ciclosConfig: [],
+  polivalencias: [],
   notificaciones: [],
   currentPage: 'dashboard',
   calMes: new Date().getMonth(),
-  calAño: new Date().getFullYear(),
+  calYear: new Date().getFullYear(),
   calFiltroLetra: '',
   calFiltroArea: '',
+  configTab: 'ciclos',
 };
 
 // =====================================================================
-// TURNO ENGINE - Calcula el turno de un empleado en una fecha
+// TURNO ENGINE
+// Patron: M M T T N N D D D D (10 days)
 // =====================================================================
 const PATRON = ['M','M','T','T','N','N','D','D','D','D'];
 
-function calcTurno(empleado, fecha, ciclos, festivos) {
-  const d = new Date(fecha + 'T00:00:00');
+function calcTurno(empleado, fechaStr) {
+  const d = new Date(fechaStr + 'T12:00:00');
   const letraId = empleado.letra_id;
-  const ciclosLetra = ciclos.filter(c => c.letra_id === letraId).sort((a,b) => a.orden - b.orden);
-  
-  for (const ciclo of ciclosLetra) {
-    const inicio = new Date(ciclo.fecha_inicio + 'T00:00:00');
-    const fin = new Date(ciclo.fecha_fin + 'T00:00:00');
+  const ciclos = state.ciclosConfig
+    .filter(c => c.letra_id === letraId)
+    .sort((a, b) => a.orden - b.orden);
+
+  for (const ciclo of ciclos) {
+    const inicio = new Date(ciclo.fecha_inicio + 'T12:00:00');
+    const fin = new Date(ciclo.fecha_fin + 'T12:00:00');
     if (d >= inicio && d <= fin) {
       if (ciclo.tipo === 'refuerzo') {
-        // Lunes a viernes, sin festivos
-        const dow = d.getDay(); // 0=dom, 6=sab
+        const dow = d.getDay();
         if (dow === 0 || dow === 6) return 'D';
-        if (festivos.some(f => f.fecha === fecha)) return 'D';
+        const esFestivo = state.festivos.some(f => f.fecha === fechaStr);
+        if (esFestivo) return 'D';
         return 'R';
       } else {
-        // Ciclo turno: calcular posición en patrón
-        const inicioTurno = calcInicioPatron(ciclo.turno_inicial, inicio);
-        const diffMs = d - inicioTurno;
-        const diffDays = Math.round(diffMs / (1000*60*60*24));
-        if (diffDays < 0) return '';
+        // Turno rotativo
+        const offsets = { 'M': 0, 'T': 2, 'N': 4, 'D': 6 };
+        const offset = offsets[ciclo.turno_inicial] || 0;
+        const base = new Date(ciclo.fecha_inicio + 'T12:00:00');
+        base.setDate(base.getDate() - offset);
+        const diffMs = d.getTime() - base.getTime();
+        const diffDays = Math.round(diffMs / 86400000);
         const pos = ((diffDays % 10) + 10) % 10;
         return PATRON[pos];
       }
@@ -1051,21 +1065,13 @@ function calcTurno(empleado, fecha, ciclos, festivos) {
   return '';
 }
 
-function calcInicioPatron(turnoInicial, fechaInicio) {
-  // El turno_inicial indica qué letra del patrón cae en fechaInicio
-  // M=0, T=2, N=4, D=6
-  const offsets = { 'M': 0, 'T': 2, 'N': 4, 'D': 6 };
-  const offset = offsets[turnoInicial] || 0;
-  const d = new Date(fechaInicio);
-  d.setDate(d.getDate() - offset);
-  return d;
-}
-
 // =====================================================================
 // AUTH
 // =====================================================================
 function switchLoginTab(tab) {
-  document.querySelectorAll('.login-tab').forEach((t,i) => t.classList.toggle('active', (i===0 && tab==='gestor') || (i===1 && tab==='empleado')));
+  document.querySelectorAll('.login-tab').forEach((t, i) => {
+    t.classList.toggle('active', (i === 0 && tab === 'gestor') || (i === 1 && tab === 'empleado'));
+  });
   document.getElementById('login-gestor').style.display = tab === 'gestor' ? '' : 'none';
   document.getElementById('login-empleado').style.display = tab === 'empleado' ? '' : 'none';
   document.getElementById('login-error').textContent = '';
@@ -1074,42 +1080,56 @@ function switchLoginTab(tab) {
 async function loginGestor() {
   const email = document.getElementById('g-email').value.trim();
   const pass = document.getElementById('g-pass').value;
-  document.getElementById('login-error').textContent = '';
-  if (!email || !pass) { document.getElementById('login-error').textContent = 'Introduce email y contraseña'; return; }
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!email || !pass) { errEl.textContent = 'Introduce email y contraseña'; return; }
+
   try {
-    const r = await sb.signIn(email, pass);
+    const r = await sbSignIn(email, pass);
     if (r.error || !r.access_token) {
-      document.getElementById('login-error').textContent = 'Email o contraseña incorrectos';
+      errEl.textContent = r.error_description || 'Email o contraseña incorrectos';
       return;
     }
-    sb._token = r.access_token;
-    const nombre = r.user?.user_metadata?.nombre || email.split('@')[0];
-    enterApp({ tipo: 'gestor', id: r.user.id, nombre, email, token: r.access_token });
-  } catch(e) {
-    document.getElementById('login-error').textContent = 'Error de conexión. Inténtalo de nuevo.';
+    authToken = r.access_token;
+    const nombre = email.split('@')[0];
+    enterApp({ tipo: 'gestor', id: r.user.id, nombre: nombre, email: email });
+  } catch (e) {
+    errEl.textContent = 'Error de conexión';
+    console.error('Login error:', e);
   }
 }
 
 async function loginEmpleado() {
   const username = document.getElementById('e-user').value.trim();
   const pass = document.getElementById('e-pass').value;
-  document.getElementById('login-error').textContent = '';
-  
-  if (!username || !pass) { document.getElementById('login-error').textContent = 'Introduce usuario y contraseña'; return; }
-  
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!username || !pass) { errEl.textContent = 'Introduce usuario y contraseña'; return; }
+
   try {
-    const rows = await sb.query('empleados', {
+    const rows = await sbQuery('empleados', {
       select: '*',
-      filter: { 'username': `eq.${username}`, 'password_hash': `eq.${pass}`, 'activo': 'eq.true' }
+      filters: [
+        'username=eq.' + username,
+        'password_hash=eq.' + pass,
+        'activo=eq.true'
+      ]
     });
     if (!rows || rows.length === 0) {
-      document.getElementById('login-error').textContent = 'Usuario o contraseña incorrectos';
+      errEl.textContent = 'Usuario o contraseña incorrectos';
       return;
     }
     const emp = rows[0];
-    enterApp({ tipo: 'empleado', id: emp.id, nombre: emp.nombre + ' ' + emp.apellidos, username, empleadoData: emp });
-  } catch(e) {
-    document.getElementById('login-error').textContent = 'Error de conexión';
+    enterApp({
+      tipo: 'empleado',
+      id: emp.id,
+      nombre: emp.nombre + ' ' + emp.apellidos,
+      username: username,
+      empleadoData: emp
+    });
+  } catch (e) {
+    errEl.textContent = 'Error de conexión';
+    console.error('Login error:', e);
   }
 }
 
@@ -1117,23 +1137,96 @@ function enterApp(user) {
   state.user = user;
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
-  
-  // Update UI
-  const initials = user.nombre.split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase();
+
+  const initials = user.nombre.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
   document.getElementById('user-avatar').textContent = initials;
   document.getElementById('user-name').textContent = user.nombre;
   document.getElementById('user-role').textContent = user.tipo === 'gestor' ? 'Gestor / Admin' : 'Empleado';
-  
+
   buildNav();
-  loadData().then(() => {
+  loadAllData().then(() => {
     navigateTo(user.tipo === 'gestor' ? 'dashboard' : 'mi-turno');
   });
 }
 
 function logout() {
   state.user = null;
+  authToken = null;
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
+}
+
+// =====================================================================
+// DATA LOADING
+// =====================================================================
+async function loadAllData() {
+  try {
+    // Load each independently so one failure doesn't kill all
+    const results = await Promise.allSettled([
+      sbQuery('empleados', {
+        select: '*',
+        filters: ['planta_id=eq.' + PLANTA_ID, 'activo=eq.true'],
+        order: 'nombre.asc'
+      }),
+      sbQuery('areas', {
+        select: '*',
+        filters: ['planta_id=eq.' + PLANTA_ID],
+        order: 'orden.asc'
+      }),
+      sbQuery('letras', {
+        select: '*',
+        filters: ['planta_id=eq.' + PLANTA_ID]
+      }),
+      sbQuery('festivos', {
+        select: '*',
+        filters: ['planta_id=eq.' + PLANTA_ID]
+      }),
+      sbQuery('ciclos_config', {
+        select: '*',
+        order: 'orden.asc'
+      }),
+      sbQuery('polivalencias', {
+        select: 'empleado_id,area_id'
+      }),
+    ]);
+
+    state.empleados = results[0].status === 'fulfilled' ? results[0].value : [];
+    state.areas = results[1].status === 'fulfilled' ? results[1].value : [];
+    state.letras = results[2].status === 'fulfilled' ? results[2].value : [];
+    state.festivos = results[3].status === 'fulfilled' ? results[3].value : [];
+    state.ciclosConfig = results[4].status === 'fulfilled' ? results[4].value : [];
+    state.polivalencias = results[5].status === 'fulfilled' ? results[5].value : [];
+
+    console.log('Data loaded:', {
+      empleados: state.empleados.length,
+      areas: state.areas.length,
+      letras: state.letras.length,
+      festivos: state.festivos.length,
+      ciclos: state.ciclosConfig.length,
+      polivalencias: state.polivalencias.length
+    });
+
+    // Load notifications separately (may fail if gestores table has no row)
+    try {
+      if (state.user.tipo === 'empleado') {
+        state.notificaciones = await sbQuery('notificaciones', {
+          select: '*',
+          filters: ['destinatario_empleado_id=eq.' + state.user.id],
+          order: 'created_at.desc',
+          limit: 20
+        });
+      } else {
+        state.notificaciones = [];
+      }
+    } catch (e) {
+      state.notificaciones = [];
+    }
+
+    updateNotifBadge();
+  } catch (e) {
+    console.error('Error loading data:', e);
+    showToast('Error cargando datos', 'error');
+  }
 }
 
 // =====================================================================
@@ -1163,7 +1256,7 @@ const NAV_EMPLEADO = [
 function getIcon(name) {
   const icons = {
     home: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
-    calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
     users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     sun: '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>',
     shuffle: '<polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/>',
@@ -1172,35 +1265,33 @@ function getIcon(name) {
     settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
     clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
     grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
-    'file-text': '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
+    'file-text': '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
   };
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><${icons[name] ? 'g>' + icons[name] + '</g>' : 'circle cx="12" cy="12" r="10"/>'}</svg>`.replace('<g>','').replace('</g>','');
+  const inner = icons[name] || '<circle cx="12" cy="12" r="10"/>';
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
 }
 
 function buildNav() {
   const nav = document.getElementById('sidebar-nav');
   const items = state.user.tipo === 'gestor' ? NAV_GESTOR : NAV_EMPLEADO;
   nav.innerHTML = items.map(item => {
-    if (item.separator) return `<div class="nav-section-label">${item.separator}</div>`;
-    return `<div class="nav-item" id="nav-${item.id}" onclick="navigateTo('${item.id}')">
-      ${getIcon(item.icon)}
-      <span>${item.label}</span>
-      ${item.badge ? `<span class="nav-badge" id="badge-${item.id}">${item.badge}</span>` : ''}
-    </div>`;
+    if (item.separator) return '<div class="nav-section-label">' + item.separator + '</div>';
+    return '<div class="nav-item" id="nav-' + item.id + '" onclick="navigateTo(\'' + item.id + '\')">' +
+      getIcon(item.icon) + '<span>' + item.label + '</span></div>';
   }).join('');
 }
 
 function navigateTo(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  
-  const pageEl = document.getElementById(`page-${page}`);
+
+  const pageEl = document.getElementById('page-' + page);
   if (pageEl) pageEl.classList.add('active');
-  const navEl = document.getElementById(`nav-${page}`);
+  const navEl = document.getElementById('nav-' + page);
   if (navEl) navEl.classList.add('active');
-  
+
   state.currentPage = page;
-  
+
   const titles = {
     'dashboard': 'Dashboard', 'calendario': 'Calendario de Turnos',
     'empleados': 'Empleados', 'vacaciones': 'Vacaciones',
@@ -1210,127 +1301,10 @@ function navigateTo(page) {
     'mis-solicitudes': 'Mis Solicitudes',
   };
   document.getElementById('page-title').textContent = titles[page] || page;
-  
   closeSidebar();
   renderPage(page);
 }
 
-// =====================================================================
-// DATA LOADING
-// =====================================================================
-async function loadData() {
-  try {
-    const [empleados, areas, letras, festivos, ciclos, notifs] = await Promise.all([
-      sb.query('empleados', { select: '*', filter: { planta_id: `eq.${PLANTA_ID}`, activo: 'eq.true' }, order: 'nombre.asc' }),
-      sb.query('areas', { select: '*', filter: { planta_id: `eq.${PLANTA_ID}` }, order: 'orden.asc' }),
-      sb.query('letras', { select: '*', filter: { planta_id: `eq.${PLANTA_ID}` } }),
-      sb.query('festivos', { select: '*', filter: { planta_id: `eq.${PLANTA_ID}`, año: `eq.${new Date().getFullYear()}` } }),
-      sb.query('ciclos_config', { select: '*', order: 'orden.asc' }),
-      loadNotifs(),
-    ]);
-    state.empleados = empleados || [];
-    state.areas = areas || [];
-    state.letras = letras || [];
-    state.festivos = festivos || [];
-    state.ciclosConfig = ciclos || [];
-    state.notificaciones = notifs || [];
-    
-    // Load polivalencias
-    const polivs = await sb.query('polivalencias', { select: 'empleado_id,area_id' });
-    state.polivalencias = polivs || [];
-    
-    updateNotifBadge();
-  } catch(e) {
-    console.error('Error cargando datos:', e);
-    // Datos demo offline
-    loadDemoData();
-  }
-}
-
-async function loadNotifs() {
-  if (!state.user) return [];
-  try {
-    if (state.user.tipo === 'gestor') {
-      return await sb.query('notificaciones', { select: '*', filter: { destinatario_gestor_id: `eq.${state.user.id}` }, order: 'created_at.desc', limit: 20 }) || [];
-    } else {
-      return await sb.query('notificaciones', { select: '*', filter: { destinatario_empleado_id: `eq.${state.user.id}` }, order: 'created_at.desc', limit: 20 }) || [];
-    }
-  } catch { return []; }
-}
-
-function loadDemoData() {
-  // Datos mínimos de demo para funcionar offline
-  state.areas = [
-    { id: 'a1b2c3d4-0002-0001-0001-000000000001', nombre: 'Jefe de Turno', color: '#1E3A5F', permite_polivalencia: false, orden: 1 },
-    { id: 'a1b2c3d4-0002-0001-0001-000000000002', nombre: 'Control', color: '#2563EB', permite_polivalencia: false, orden: 2 },
-    { id: 'a1b2c3d4-0002-0001-0001-000000000003', nombre: 'RX/RG', color: '#7C3AED', permite_polivalencia: true, orden: 3 },
-    { id: 'a1b2c3d4-0002-0001-0001-000000000004', nombre: 'Área A', color: '#059669', permite_polivalencia: true, orden: 4 },
-    { id: 'a1b2c3d4-0002-0001-0001-000000000005', nombre: 'Área B', color: '#D97706', permite_polivalencia: true, orden: 5 },
-    { id: 'a1b2c3d4-0002-0001-0001-000000000006', nombre: 'Azufre', color: '#DC2626', permite_polivalencia: true, orden: 6 },
-  ];
-  state.letras = [
-    { id: 'a1b2c3d4-0003-0001-0001-000000000001', nombre: 'A', color: '#EF4444' },
-    { id: 'a1b2c3d4-0003-0001-0001-000000000002', nombre: 'B', color: '#F97316' },
-    { id: 'a1b2c3d4-0003-0001-0001-000000000003', nombre: 'C', color: '#EAB308' },
-    { id: 'a1b2c3d4-0003-0001-0001-000000000004', nombre: 'D', color: '#22C55E' },
-    { id: 'a1b2c3d4-0003-0001-0001-000000000005', nombre: 'E', color: '#3B82F6' },
-    { id: 'a1b2c3d4-0003-0001-0001-000000000006', nombre: 'ER', color: '#8B5CF6' },
-  ];
-  // Generar empleados demo
-  const nombres = ['Carlos Moreno','Laura Sánchez','Miguel García','Ana López','José Romero','María Fernández','Antonio Jiménez',
-    'Pedro González','Carmen Vargas','Raúl Torres','Isabel Molina','Francisco Navarro','Elena Ramos','David Serrano',
-    'Manuel Delgado','Rosa Ortega','Javier Castillo','Pilar Herrera','Roberto Medina','Lucía Guerrero','Sergio Flores',
-    'Álvaro Ibáñez','Cristina Muñoz','Fernando Aguilar','Natalia Campos','Héctor Vidal','Silvia Pascual','Andrés Rubio',
-    'Tomás Carrasco','Beatriz Prieto','Ignacio Bravo','Patricia Domínguez','Marcos Lozano','Verónica Alonso','Diego Cortés',
-    'Pablo Santana','Marta León','Rubén Vicente','Nuria Gallego','Víctor Cano','Inés Marín','Hugo Peña'];
-  const letraIds = state.letras.map(l => l.id);
-  const areaIds = state.areas.map(a => a.id);
-  state.empleados = nombres.map((n, i) => ({
-    id: `emp-demo-${i.toString().padStart(3,'0')}`,
-    nombre: n.split(' ')[0],
-    apellidos: n.split(' ').slice(1).join(' '),
-    username: n.split(' ')[0].toLowerCase().slice(0,1) + '.' + n.split(' ')[1].toLowerCase(),
-    letra_id: letraIds[Math.floor(i/7)],
-    area_principal_id: areaIds[i % 6],
-    planta_id: PLANTA_ID,
-    activo: true,
-  }));
-  state.festivos = [
-    { fecha: '2026-01-01', nombre: 'Año Nuevo' },
-    { fecha: '2026-01-06', nombre: 'Reyes Magos' },
-    { fecha: '2026-04-03', nombre: 'Viernes Santo' },
-    { fecha: '2026-05-01', nombre: 'Día del Trabajador' },
-    { fecha: '2026-08-15', nombre: 'Asunción' },
-    { fecha: '2026-10-12', nombre: 'Fiesta Nacional' },
-    { fecha: '2026-12-25', nombre: 'Navidad' },
-  ];
-  state.ciclosConfig = [
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000001', año: 2026, orden: 1, tipo: 'refuerzo', fecha_inicio: '2026-01-01', fecha_fin: '2026-01-28' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000001', año: 2026, orden: 2, tipo: 'turno', fecha_inicio: '2026-01-31', fecha_fin: '2026-10-04', turno_inicial: 'M' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000001', año: 2026, orden: 3, tipo: 'refuerzo', fecha_inicio: '2026-10-05', fecha_fin: '2026-10-28' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000001', año: 2026, orden: 4, tipo: 'turno', fecha_inicio: '2026-10-31', fecha_fin: '2026-12-31', turno_inicial: 'M' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000002', año: 2026, orden: 1, tipo: 'turno', fecha_inicio: '2026-01-05', fecha_fin: '2026-10-26', turno_inicial: 'M' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000002', año: 2026, orden: 2, tipo: 'refuerzo', fecha_inicio: '2026-10-29', fecha_fin: '2026-12-31' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000003', año: 2026, orden: 1, tipo: 'turno', fecha_inicio: '2026-01-03', fecha_fin: '2026-03-29', turno_inicial: 'M' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000003', año: 2026, orden: 2, tipo: 'refuerzo', fecha_inicio: '2026-04-01', fecha_fin: '2026-06-03' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000003', año: 2026, orden: 3, tipo: 'turno', fecha_inicio: '2026-06-06', fecha_fin: '2026-12-31', turno_inicial: 'M' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000004', año: 2026, orden: 1, tipo: 'turno', fecha_inicio: '2026-01-01', fecha_fin: '2026-01-26', turno_inicial: 'M' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000004', año: 2026, orden: 2, tipo: 'refuerzo', fecha_inicio: '2026-01-29', fecha_fin: '2026-03-31' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000004', año: 2026, orden: 3, tipo: 'turno', fecha_inicio: '2026-04-03', fecha_fin: '2026-12-31', turno_inicial: 'M' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000005', año: 2026, orden: 1, tipo: 'turno', fecha_inicio: '2026-01-01', fecha_fin: '2026-06-04', turno_inicial: 'N' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000005', año: 2026, orden: 2, tipo: 'refuerzo', fecha_inicio: '2026-06-05', fecha_fin: '2026-08-04' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000005', año: 2026, orden: 3, tipo: 'turno', fecha_inicio: '2026-08-07', fecha_fin: '2026-12-31', turno_inicial: 'M' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000006', año: 2026, orden: 1, tipo: 'turno', fecha_inicio: '2026-01-01', fecha_fin: '2026-08-02', turno_inicial: 'T' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000006', año: 2026, orden: 2, tipo: 'refuerzo', fecha_inicio: '2026-08-05', fecha_fin: '2026-10-02' },
-    { letra_id: 'a1b2c3d4-0003-0001-0001-000000000006', año: 2026, orden: 3, tipo: 'turno', fecha_inicio: '2026-10-05', fecha_fin: '2026-12-31', turno_inicial: 'M' },
-  ];
-  state.polivalencias = [];
-  state.notificaciones = [];
-}
-
-// =====================================================================
-// RENDER PAGES
-// =====================================================================
 function renderPage(page) {
   const renders = {
     'dashboard': renderDashboard,
@@ -1349,335 +1323,235 @@ function renderPage(page) {
 }
 
 // =====================================================================
-// DASHBOARD (GESTOR)
+// HELPERS
+// =====================================================================
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function formatDateES(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function getLetra(id) { return state.letras.find(l => l.id === id); }
+function getArea(id) { return state.areas.find(a => a.id === id); }
+
+function turnoLabel(t) {
+  return { M: 'Mañana', T: 'Tarde', N: 'Noche', D: 'Descanso', R: 'Refuerzo', V: 'Vacaciones', B: 'Baja', L: 'Licencia' }[t] || '';
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (type || '');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// =====================================================================
+// DASHBOARD
 // =====================================================================
 function renderDashboard() {
   const hoy = todayStr();
-  const totalEmp = state.empleados.length;
-  const enTurno = state.empleados.filter(e => {
-    const t = calcTurno(e, hoy, state.ciclosConfig, state.festivos);
-    return ['M','T','N','R'].includes(t);
+  const total = state.empleados.length;
+  const trabajando = state.empleados.filter(e => ['M','T','N','R'].includes(calcTurno(e, hoy)));
+  const manana = trabajando.filter(e => calcTurno(e, hoy) === 'M');
+  const tarde = trabajando.filter(e => calcTurno(e, hoy) === 'T');
+  const noche = trabajando.filter(e => calcTurno(e, hoy) === 'N');
+
+  let html = '<div class="stats-grid">';
+  html += statCard('Empleados activos', total, state.letras.length + ' letras · ' + state.areas.length + ' áreas', '#DBEAFE', '#2563EB');
+  html += statCard('Turno Mañana', manana.length, '06:00 – 14:00', '#DBEAFE', '#1D4ED8');
+  html += statCard('Turno Tarde', tarde.length, '14:00 – 22:00', '#FEF3C7', '#D97706');
+  html += statCard('Turno Noche', noche.length, '22:00 – 06:00', '#EDE9FE', '#7C3AED');
+  html += '</div>';
+
+  html += '<div class="dashboard-grid">';
+  // Tabla hoy
+  html += '<div class="card"><div class="card-header"><span class="card-title">Turnos de hoy — ' + formatDateES(hoy) + '</span>';
+  html += '<button class="btn btn-sm btn-outline" onclick="navigateTo(\'calendario\')">Ver calendario</button></div>';
+  html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr><th>Empleado</th><th>Letra</th><th>Área</th><th>Turno</th></tr></thead><tbody>';
+  trabajando.slice(0, 14).forEach(e => {
+    const t = calcTurno(e, hoy);
+    const l = getLetra(e.letra_id);
+    const a = getArea(e.area_principal_id);
+    html += '<tr><td><div style="display:flex;align-items:center;gap:8px">';
+    html += '<div class="emp-avatar" style="background:' + (l ? l.color : '#64748B') + '">' + (e.nombre[0] || '') + (e.apellidos[0] || '') + '</div>';
+    html += '<div><div style="font-size:12px;font-weight:600">' + e.nombre + ' ' + e.apellidos + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3)">' + e.username + '</div></div></div></td>';
+    html += '<td><span class="letra-badge" style="background:' + (l ? l.color + '22' : '#eee') + ';color:' + (l ? l.color : '#999') + '">' + (l ? l.nombre : '?') + '</span></td>';
+    html += '<td style="font-size:12px">' + (a ? a.nombre : '—') + '</td>';
+    html += '<td><span class="turno-badge ' + t + '">' + t + '</span></td></tr>';
   });
-  const manana = enTurno.filter(e => calcTurno(e, hoy, state.ciclosConfig, state.festivos) === 'M');
-  const tarde = enTurno.filter(e => calcTurno(e, hoy, state.ciclosConfig, state.festivos) === 'T');
-  const noche = enTurno.filter(e => calcTurno(e, hoy, state.ciclosConfig, state.festivos) === 'N');
+  html += '</tbody></table></div></div>';
 
-  document.getElementById('page-dashboard').innerHTML = `
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-icon" style="background:#DBEAFE">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        </div>
-        <div>
-          <div class="stat-value">${totalEmp}</div>
-          <div class="stat-label">Empleados activos</div>
-          <div class="stat-sub">${state.letras.length} letras · ${state.areas.length} áreas</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon" style="background:#DBEAFE">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#1D4ED8" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        </div>
-        <div>
-          <div class="stat-value">${manana.length}</div>
-          <div class="stat-label">Turno Mañana hoy</div>
-          <div class="stat-sub">06:00 – 14:00</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon" style="background:#FEF3C7">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        </div>
-        <div>
-          <div class="stat-value">${tarde.length}</div>
-          <div class="stat-label">Turno Tarde hoy</div>
-          <div class="stat-sub">14:00 – 22:00</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon" style="background:#EDE9FE">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#7C3AED" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        </div>
-        <div>
-          <div class="stat-value">${noche.length}</div>
-          <div class="stat-label">Turno Noche hoy</div>
-          <div class="stat-sub">22:00 – 06:00</div>
-        </div>
-      </div>
-    </div>
+  // Lado derecho
+  html += '<div style="display:flex;flex-direction:column;gap:16px">';
+  // Resumen por área
+  html += '<div class="card"><div class="card-header"><span class="card-title">Resumen por área hoy</span></div><div class="card-body" style="padding:12px 16px">';
+  state.areas.forEach(area => {
+    const count = trabajando.filter(e => e.area_principal_id === area.id).length;
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">';
+    html += '<div style="display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;border-radius:50%;background:' + area.color + '"></div>';
+    html += '<span style="font-size:13px">' + area.nombre + '</span></div>';
+    html += '<span style="font-size:13px;font-weight:600;color:' + (count > 0 ? 'var(--success)' : 'var(--danger)') + '">' + count + '</span></div>';
+  });
+  html += '</div></div>';
 
-    <div class="dashboard-grid">
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Turnos de hoy — ${formatDateES(hoy)}</span>
-          <button class="btn btn-sm btn-outline" onclick="navigateTo('calendario')">Ver calendario</button>
-        </div>
-        <div class="card-body" style="padding:0">
-          <table style="width:100%;border-collapse:collapse">
-            <thead>
-              <tr>
-                <th style="padding:8px 16px;text-align:left;font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">Empleado</th>
-                <th style="padding:8px;text-align:center;font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">Letra</th>
-                <th style="padding:8px;text-align:center;font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">Área</th>
-                <th style="padding:8px;text-align:center;font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">Turno</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${state.empleados.filter(e => ['M','T','N','R'].includes(calcTurno(e, hoy, state.ciclosConfig, state.festivos))).slice(0,12).map(e => {
-                const t = calcTurno(e, hoy, state.ciclosConfig, state.festivos);
-                const letra = state.letras.find(l => l.id === e.letra_id);
-                const area = state.areas.find(a => a.id === e.area_principal_id);
-                return `<tr>
-                  <td style="padding:8px 16px;border-bottom:1px solid var(--border)">
-                    <div style="display:flex;align-items:center;gap:8px">
-                      <div class="emp-avatar" style="background:${letra?.color||'#64748B'}">${(e.nombre[0]||'?')+(e.apellidos[0]||'?')}</div>
-                      <div>
-                        <div style="font-size:12px;font-weight:600">${e.nombre} ${e.apellidos}</div>
-                        <div style="font-size:10px;color:var(--text3)">${e.username}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td style="padding:8px;text-align:center;border-bottom:1px solid var(--border)">
-                    <span class="letra-badge" style="background:${letra?.color}22;color:${letra?.color}">${letra?.nombre||'?'}</span>
-                  </td>
-                  <td style="padding:8px;text-align:center;border-bottom:1px solid var(--border);font-size:11px;color:var(--text2)">${area?.nombre||'—'}</td>
-                  <td style="padding:8px;text-align:center;border-bottom:1px solid var(--border)">
-                    <span class="turno-badge ${t}">${t}</span>
-                  </td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
+  // Próximos 5 días
+  html += '<div class="card"><div class="card-header"><span class="card-title">Próximos 5 días</span></div><div class="card-body" style="padding:12px 16px">';
+  for (let i = 0; i < 5; i++) {
+    const d = new Date(); d.setDate(d.getDate() + i);
+    const ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const activos = state.empleados.filter(e => ['M','T','N','R'].includes(calcTurno(e, ds))).length;
+    const festivo = state.festivos.find(f => f.fecha === ds);
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">';
+    html += '<div><span style="font-size:12px;font-weight:600">' + formatDateES(ds) + '</span>';
+    if (festivo) html += '<span style="font-size:10px;color:var(--danger);margin-left:6px"> ' + festivo.nombre + '</span>';
+    html += '</div><span style="font-size:12px;color:var(--text2)">' + activos + ' trabajando</span></div>';
+  }
+  html += '</div></div></div></div>';
 
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <div class="card">
-          <div class="card-header"><span class="card-title">Resumen por área hoy</span></div>
-          <div class="card-body" style="padding:12px 16px">
-            ${state.areas.map(area => {
-              const empArea = state.empleados.filter(e => {
-                const t = calcTurno(e, hoy, state.ciclosConfig, state.festivos);
-                return e.area_principal_id === area.id && ['M','T','N','R'].includes(t);
-              });
-              return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-                <div style="display:flex;align-items:center;gap:8px">
-                  <div style="width:8px;height:8px;border-radius:50%;background:${area.color}"></div>
-                  <span style="font-size:13px">${area.nombre}</span>
-                </div>
-                <span style="font-size:13px;font-weight:600;color:${empArea.length>0?'var(--success)':'var(--danger)'}">${empArea.length} activo${empArea.length!==1?'s':''}</span>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>
+  document.getElementById('page-dashboard').innerHTML = html;
+}
 
-        <div class="card">
-          <div class="card-header"><span class="card-title">Próximos 5 días</span></div>
-          <div class="card-body" style="padding:12px 16px">
-            ${[0,1,2,3,4].map(offset => {
-              const d = new Date(); d.setDate(d.getDate() + offset);
-              const ds = d.toISOString().split('T')[0];
-              const activos = state.empleados.filter(e => ['M','T','N','R'].includes(calcTurno(e, ds, state.ciclosConfig, state.festivos))).length;
-              const festivo = state.festivos.find(f => f.fecha === ds);
-              return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">
-                <div>
-                  <span style="font-size:12px;font-weight:600">${formatDateES(ds)}</span>
-                  ${festivo ? `<span style="font-size:10px;color:var(--danger);margin-left:6px">🎉 ${festivo.nombre}</span>` : ''}
-                </div>
-                <span style="font-size:12px;color:var(--text2)">${activos} trabajando</span>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
+function statCard(label, value, sub, bg, color) {
+  return '<div class="stat-card"><div class="stat-icon" style="background:' + bg + '">' +
+    '<svg viewBox="0 0 24 24" fill="none" stroke="' + color + '" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>' +
+    '<div><div class="stat-value">' + value + '</div><div class="stat-label">' + label + '</div><div class="stat-sub">' + sub + '</div></div></div>';
 }
 
 // =====================================================================
 // CALENDARIO
 // =====================================================================
 function renderCalendario() {
-  const año = state.calAño;
+  const year = state.calYear;
   const mes = state.calMes;
-  const diasMes = new Date(año, mes + 1, 0).getDate();
+  const diasMes = new Date(year, mes + 1, 0).getDate();
   const nombresMes = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
-  let empleadosFiltrados = [...state.empleados];
-  if (state.calFiltroLetra) empleadosFiltrados = empleadosFiltrados.filter(e => e.letra_id === state.calFiltroLetra);
-  if (state.calFiltroArea) empleadosFiltrados = empleadosFiltrados.filter(e => e.area_principal_id === state.calFiltroArea);
+  let emps = [...state.empleados];
+  if (state.calFiltroLetra) emps = emps.filter(e => e.letra_id === state.calFiltroLetra);
+  if (state.calFiltroArea) emps = emps.filter(e => e.area_principal_id === state.calFiltroArea);
 
-  // Agrupar por letra
   const porLetra = {};
   state.letras.forEach(l => {
-    const emps = empleadosFiltrados.filter(e => e.letra_id === l.id);
-    if (emps.length) porLetra[l.id] = { letra: l, emps };
+    const le = emps.filter(e => e.letra_id === l.id);
+    if (le.length) porLetra[l.id] = { letra: l, emps: le };
   });
 
-  // Cabecera días
-  const diasHeaders = Array.from({length: diasMes}, (_,i) => {
-    const d = new Date(año, mes, i+1);
-    const ds = `${año}-${String(mes+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`;
-    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-    const isFestivo = state.festivos.some(f => f.fecha === ds);
-    const dayNames = ['D','L','M','X','J','V','S'];
-    return { num: i+1, ds, isWeekend, isFestivo, dayName: dayNames[d.getDay()] };
+  const dayNames = ['D','L','M','X','J','V','S'];
+  const dias = [];
+  for (let i = 1; i <= diasMes; i++) {
+    const d = new Date(year, mes, i);
+    const ds = year + '-' + String(mes + 1).padStart(2, '0') + '-' + String(i).padStart(2, '0');
+    dias.push({
+      num: i, ds,
+      isWeekend: d.getDay() === 0 || d.getDay() === 6,
+      isFestivo: state.festivos.some(f => f.fecha === ds),
+      dayName: dayNames[d.getDay()]
+    });
+  }
+
+  let html = '<div class="cal-controls">';
+  html += '<div class="cal-nav">';
+  html += '<button class="cal-nav-btn" onclick="calPrev()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>';
+  html += '<span class="cal-month-label">' + nombresMes[mes] + ' ' + year + '</span>';
+  html += '<button class="cal-nav-btn" onclick="calNext()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>';
+  html += '</div>';
+  html += '<div class="cal-filters">';
+  html += '<select class="filter-select" onchange="state.calFiltroLetra=this.value;renderCalendario()"><option value="">Todas las letras</option>';
+  state.letras.forEach(l => { html += '<option value="' + l.id + '"' + (state.calFiltroLetra === l.id ? ' selected' : '') + '>' + l.nombre + '</option>'; });
+  html += '</select>';
+  html += '<select class="filter-select" onchange="state.calFiltroArea=this.value;renderCalendario()"><option value="">Todas las áreas</option>';
+  state.areas.forEach(a => { html += '<option value="' + a.id + '"' + (state.calFiltroArea === a.id ? ' selected' : '') + '>' + a.nombre + '</option>'; });
+  html += '</select>';
+  html += '<button class="btn btn-outline btn-sm" onclick="state.calFiltroLetra=\'\';state.calFiltroArea=\'\';renderCalendario()">Limpiar</button>';
+  html += '</div></div>';
+
+  html += '<div class="card"><div class="cal-table-wrap"><table class="cal-table"><thead><tr>';
+  html += '<th style="text-align:left;padding:8px 12px;min-width:170px;position:sticky;left:0;background:white;z-index:10">Empleado</th>';
+  dias.forEach(d => {
+    html += '<th class="day-header' + (d.isWeekend ? ' weekend' : '') + (d.isFestivo ? ' festivo' : '') + '">';
+    html += '<div>' + d.dayName + '</div><div>' + d.num + '</div></th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  Object.values(porLetra).forEach(({ letra, emps: le }) => {
+    html += '<tr><td colspan="' + (diasMes + 1) + '" style="background:#F8FAFC;padding:4px 12px;font-size:11px;font-weight:700;color:' + letra.color + ';border-bottom:1px solid var(--border)">Letra ' + letra.nombre + '</td></tr>';
+    le.forEach(emp => {
+      const area = getArea(emp.area_principal_id);
+      html += '<tr><td class="emp-info"><div class="emp-cell-name">' + emp.nombre + ' ' + emp.apellidos + '</div><div class="emp-cell-sub">' + (area ? area.nombre : '—') + '</div></td>';
+      dias.forEach(d => {
+        const t = calcTurno(emp, d.ds);
+        const isToday = d.ds === todayStr();
+        html += '<td style="' + (isToday ? 'background:#EFF6FF' : '') + '"' + (state.user.tipo === 'gestor' ? ' onclick="editarTurno(\'' + emp.id + '\',\'' + d.ds + '\',\'' + t + '\')"' : '') + '>';
+        html += '<span class="turno-cell ' + (t || 'empty') + '">' + (t || '·') + '</span></td>';
+      });
+      html += '</tr>';
+    });
   });
 
-  document.getElementById('page-calendario').innerHTML = `
-    <div class="cal-controls">
-      <div class="cal-nav">
-        <button class="cal-nav-btn" onclick="calPrev()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <span class="cal-month-label">${nombresMes[mes]} ${año}</span>
-        <button class="cal-nav-btn" onclick="calNext()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-      </div>
-      <div class="cal-filters">
-        <select class="filter-select" onchange="state.calFiltroLetra=this.value;renderCalendario()">
-          <option value="">Todas las letras</option>
-          ${state.letras.map(l => `<option value="${l.id}" ${state.calFiltroLetra===l.id?'selected':''}>${l.nombre}</option>`).join('')}
-        </select>
-        <select class="filter-select" onchange="state.calFiltroArea=this.value;renderCalendario()">
-          <option value="">Todas las áreas</option>
-          ${state.areas.map(a => `<option value="${a.id}" ${state.calFiltroArea===a.id?'selected':''}>${a.nombre}</option>`).join('')}
-        </select>
-        <button class="btn btn-outline btn-sm" onclick="state.calFiltroLetra='';state.calFiltroArea='';renderCalendario()">Limpiar</button>
-      </div>
-    </div>
+  html += '</tbody></table></div>';
+  html += '<div class="legend-row">';
+  [['M','Mañana'],['T','Tarde'],['N','Noche'],['D','Descanso'],['R','Refuerzo'],['V','Vacaciones'],['B','Baja']].forEach(([k, v]) => {
+    html += '<div class="legend-item"><span class="turno-badge ' + k + '">' + k + '</span> ' + v + '</div>';
+  });
+  html += '</div></div>';
 
-    <div class="card">
-      <div class="cal-table-wrap">
-        <table class="cal-table">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:8px 12px;min-width:170px;position:sticky;left:0;background:white;z-index:10">Empleado</th>
-              ${diasHeaders.map(d => `<th class="day-header ${d.isWeekend?'weekend':''} ${d.isFestivo?'festivo':''}" title="${d.isFestivo?state.festivos.find(f=>f.fecha===d.ds)?.nombre:''}">
-                <div>${d.dayName}</div>
-                <div>${d.num}</div>
-              </th>`).join('')}
-            </tr>
-          </thead>
-          <tbody>
-            ${Object.values(porLetra).map(({letra, emps}) => `
-              <tr>
-                <td colspan="${diasMes+1}" style="background:#F8FAFC;padding:4px 12px;font-size:11px;font-weight:700;color:${letra.color};border-bottom:1px solid var(--border)">
-                  Letra ${letra.nombre}
-                </td>
-              </tr>
-              ${emps.map(emp => {
-                const area = state.areas.find(a => a.id === emp.area_principal_id);
-                return `<tr>
-                  <td class="emp-info">
-                    <div class="emp-cell-name">${emp.nombre} ${emp.apellidos}</div>
-                    <div class="emp-cell-sub">${area?.nombre||'—'}</div>
-                  </td>
-                  ${diasHeaders.map(d => {
-                    const t = calcTurno(emp, d.ds, state.ciclosConfig, state.festivos);
-                    const isToday = d.ds === todayStr();
-                    return `<td style="${isToday?'background:#EFF6FF':''}" onclick="editarTurno('${emp.id}','${d.ds}','${t}')">
-                      <span class="turno-cell ${t||'empty'}">${t||'·'}</span>
-                    </td>`;
-                  }).join('')}
-                </tr>`;
-              }).join('')}
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div class="legend-row">
-        ${[['M','Mañana'],['T','Tarde'],['N','Noche'],['D','Descanso'],['R','Refuerzo'],['V','Vacaciones'],['B','Baja']].map(([k,v]) =>
-          `<div class="legend-item"><span class="turno-badge ${k}">${k}</span> ${v}</div>`
-        ).join('')}
-      </div>
-    </div>
-  `;
+  document.getElementById('page-calendario').innerHTML = html;
 }
 
-function calPrev() { state.calMes--; if(state.calMes<0){state.calMes=11;state.calAño--;} renderCalendario(); }
-function calNext() { state.calMes++; if(state.calMes>11){state.calMes=0;state.calAño++;} renderCalendario(); }
+function calPrev() { state.calMes--; if (state.calMes < 0) { state.calMes = 11; state.calYear--; } renderCalendario(); }
+function calNext() { state.calMes++; if (state.calMes > 11) { state.calMes = 0; state.calYear++; } renderCalendario(); }
 
 // =====================================================================
 // EMPLEADOS
 // =====================================================================
 function renderEmpleados() {
-  document.getElementById('page-empleados').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <div>
-        <h2 style="font-size:15px;font-weight:600">${state.empleados.length} empleados</h2>
-        <p style="font-size:12px;color:var(--text2)">Planta Huelva · 6 letras · 6 áreas</p>
-      </div>
-      <button class="btn btn-blue" onclick="modalNuevoEmpleado()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Nuevo empleado
-      </button>
-    </div>
-    <div class="card">
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
-        <input type="text" class="form-input" placeholder="Buscar empleado..." oninput="filtrarEmpleados(this.value)" style="max-width:300px;padding:7px 12px">
-      </div>
-      <div style="overflow-x:auto">
-        <table class="emp-table" id="emp-table-body">
-          <thead>
-            <tr>
-              <th>Empleado</th>
-              <th>Letra</th>
-              <th>Área Principal</th>
-              <th>Polivalencias</th>
-              <th>Usuario</th>
-              <th>Turno hoy</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="emp-tbody">
-            ${renderEmpRows(state.empleados)}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+  html += '<div><h2 style="font-size:15px;font-weight:600">' + state.empleados.length + ' empleados</h2>';
+  html += '<p style="font-size:12px;color:var(--text2)">Planta Huelva · ' + state.letras.length + ' letras · ' + state.areas.length + ' áreas</p></div>';
+  html += '<button class="btn btn-blue" onclick="modalNuevoEmpleado()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Nuevo empleado</button></div>';
+
+  html += '<div class="card"><div style="padding:12px 16px;border-bottom:1px solid var(--border)">';
+  html += '<input type="text" class="form-input" placeholder="Buscar empleado..." oninput="filtrarEmpleados(this.value)" style="max-width:300px;padding:7px 12px"></div>';
+  html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
+  html += '<th>Empleado</th><th>Letra</th><th>Área Principal</th><th>Polivalencias</th><th>Usuario</th><th>Turno hoy</th><th></th>';
+  html += '</tr></thead><tbody id="emp-tbody">' + renderEmpRows(state.empleados) + '</tbody></table></div></div>';
+
+  document.getElementById('page-empleados').innerHTML = html;
 }
 
 function renderEmpRows(emps) {
   const hoy = todayStr();
   return emps.map(emp => {
-    const letra = state.letras.find(l => l.id === emp.letra_id);
-    const area = state.areas.find(a => a.id === emp.area_principal_id);
-    const turnoHoy = calcTurno(emp, hoy, state.ciclosConfig, state.festivos);
-    const polivs = (state.polivalencias||[]).filter(p => p.empleado_id === emp.id).map(p => state.areas.find(a=>a.id===p.area_id)?.nombre).filter(Boolean);
-    return `<tr>
-      <td>
-        <div style="display:flex;align-items:center;gap:10px">
-          <div class="emp-avatar" style="background:${letra?.color||'#64748B'}">${(emp.nombre[0]||'')+(emp.apellidos[0]||'')}</div>
-          <div>
-            <div style="font-weight:600;font-size:13px">${emp.nombre} ${emp.apellidos}</div>
-            <div style="font-size:11px;color:var(--text3)">${emp.username}</div>
-          </div>
-        </div>
-      </td>
-      <td><span class="letra-badge" style="background:${letra?.color}22;color:${letra?.color}">${letra?.nombre||'—'}</span></td>
-      <td><span style="font-size:13px">${area?.nombre||'—'}</span></td>
-      <td>
-        <div class="poliv-tags">
-          ${polivs.length ? polivs.map(p=>`<span class="poliv-tag">${p}</span>`).join('') : '<span style="font-size:11px;color:var(--text3)">Sin polivalencias</span>'}
-        </div>
-      </td>
-      <td><code style="font-size:12px;background:var(--bg);padding:2px 6px;border-radius:4px">${emp.username}</code></td>
-      <td><span class="turno-badge ${turnoHoy||'D'}">${turnoHoy||'D'}</span></td>
-      <td>
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-sm btn-ghost" onclick="modalEditarEmpleado('${emp.id}')">Editar</button>
-          <button class="btn btn-sm btn-ghost" onclick="verPerfilEmpleado('${emp.id}')" style="color:var(--primary-light)">Ver</button>
-        </div>
-      </td>
-    </tr>`;
+    const l = getLetra(emp.letra_id);
+    const a = getArea(emp.area_principal_id);
+    const t = calcTurno(emp, hoy);
+    const polivs = state.polivalencias.filter(p => p.empleado_id === emp.id).map(p => { const ar = getArea(p.area_id); return ar ? ar.nombre : ''; }).filter(Boolean);
+
+    let row = '<tr><td><div style="display:flex;align-items:center;gap:10px">';
+    row += '<div class="emp-avatar" style="background:' + (l ? l.color : '#64748B') + '">' + (emp.nombre[0] || '') + (emp.apellidos[0] || '') + '</div>';
+    row += '<div><div style="font-weight:600;font-size:13px">' + emp.nombre + ' ' + emp.apellidos + '</div>';
+    row += '<div style="font-size:11px;color:var(--text3)">' + emp.username + '</div></div></div></td>';
+    row += '<td><span class="letra-badge" style="background:' + (l ? l.color + '22' : '#eee') + ';color:' + (l ? l.color : '#999') + '">' + (l ? l.nombre : '?') + '</span></td>';
+    row += '<td style="font-size:13px">' + (a ? a.nombre : '—') + '</td>';
+    row += '<td><div class="poliv-tags">';
+    if (polivs.length) { polivs.forEach(p => { row += '<span class="poliv-tag">' + p + '</span>'; }); }
+    else { row += '<span style="font-size:11px;color:var(--text3)">—</span>'; }
+    row += '</div></td>';
+    row += '<td><code style="font-size:12px;background:var(--bg);padding:2px 6px;border-radius:4px">' + emp.username + '</code></td>';
+    row += '<td><span class="turno-badge ' + (t || 'D') + '">' + (t || 'D') + '</span></td>';
+    row += '<td><button class="btn btn-sm btn-ghost" onclick="showToast(\'Próximamente\')">Editar</button></td></tr>';
+    return row;
   }).join('');
 }
 
 function filtrarEmpleados(q) {
-  const filtered = state.empleados.filter(e => `${e.nombre} ${e.apellidos} ${e.username}`.toLowerCase().includes(q.toLowerCase()));
+  const filtered = state.empleados.filter(e => (e.nombre + ' ' + e.apellidos + ' ' + e.username).toLowerCase().includes(q.toLowerCase()));
   document.getElementById('emp-tbody').innerHTML = renderEmpRows(filtered);
 }
 
@@ -1685,99 +1559,44 @@ function filtrarEmpleados(q) {
 // VACACIONES
 // =====================================================================
 async function renderVacaciones() {
-  let rondas = [];
-  let solicitudes = [];
+  let rondas = [], solicitudes = [];
   try {
-    rondas = await sb.query('vacaciones_rondas', { select: '*', filter: { planta_id: `eq.${PLANTA_ID}`, año: 'eq.2026' }, order: 'numero_ronda.asc' });
-    solicitudes = await sb.query('vacaciones_solicitudes', { select: '*', order: 'created_at.desc', limit: 50 });
-  } catch(e) {
-    rondas = [
-      { id: 'r1', numero_ronda: 1, nombre: 'Primera Ronda', descripcion: '6 días consecutivos', dias: 6, abierta: false },
-      { id: 'r2', numero_ronda: 2, nombre: 'Segunda Ronda', descripcion: '6 días (3 compensatorio + 3 relevo)', dias: 6, abierta: true },
-      { id: 'r3', numero_ronda: 3, nombre: 'PRL', descripcion: '4 días sueltos de PRL', dias: 4, abierta: false },
-    ];
-    solicitudes = [];
+    rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'numero_ronda.asc' });
+    solicitudes = await sbQuery('vacaciones_solicitudes', { select: '*', order: 'created_at.desc', limit: 50 });
+  } catch (e) { console.error(e); }
+
+  const pendientes = solicitudes.filter(s => s.estado === 'pendiente');
+
+  let html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px"><h2 style="font-size:15px;font-weight:600">Vacaciones 2026</h2></div>';
+  html += '<div class="grid-2 mb-6"><div>';
+  html += '<h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text2)">RONDAS</h3>';
+  rondas.forEach(r => {
+    html += '<div class="vac-ronda-card"><div class="vac-ronda-header"><div>';
+    html += '<div class="vac-ronda-title">Ronda ' + r.numero_ronda + ' — ' + r.nombre + '</div>';
+    html += '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + (r.descripcion || '') + ' · ' + r.dias + ' días</div></div>';
+    html += '<span class="status-badge ' + (r.abierta ? 'open' : 'closed') + '">' + (r.abierta ? 'Abierta' : 'Cerrada') + '</span></div>';
+    html += '<div style="display:flex;gap:8px">';
+    html += '<button class="btn btn-sm ' + (r.abierta ? 'btn-red' : 'btn-green') + '" onclick="toggleRonda(\'' + r.id + '\',' + r.abierta + ')">' + (r.abierta ? 'Cerrar' : 'Abrir') + '</button>';
+    html += '</div></div>';
+  });
+  html += '</div><div>';
+  html += '<h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text2)">SOLICITUDES PENDIENTES (' + pendientes.length + ')</h3>';
+  if (pendientes.length === 0) {
+    html += '<div class="empty-state"><p>No hay solicitudes pendientes</p></div>';
+  } else {
+    pendientes.slice(0, 8).forEach(s => {
+      const emp = state.empleados.find(e => e.id === s.empleado_id);
+      html += '<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">';
+      html += '<div style="font-size:13px;font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</div>';
+      html += '<div style="font-size:12px;color:var(--text2)">' + formatDateES(s.fecha_inicio) + ' → ' + formatDateES(s.fecha_fin) + ' · ' + s.dias_solicitados + ' días</div>';
+      html += '<div style="display:flex;gap:6px;margin-top:8px">';
+      html += '<button class="btn btn-sm btn-green" onclick="aprobarSolicitud(\'' + s.id + '\')">Aprobar</button>';
+      html += '<button class="btn btn-sm btn-red" onclick="rechazarSolicitud(\'' + s.id + '\')">Rechazar</button>';
+      html += '</div></div>';
+    });
   }
-
-  const pendientes = (solicitudes||[]).filter(s => s.estado === 'pendiente');
-
-  document.getElementById('page-vacaciones').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <h2 style="font-size:15px;font-weight:600">Vacaciones 2026</h2>
-    </div>
-
-    <div class="grid-2 mb-6">
-      <div>
-        <h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text2)">RONDAS</h3>
-        ${(rondas||[]).map(r => `
-          <div class="vac-ronda-card">
-            <div class="vac-ronda-header">
-              <div>
-                <div class="vac-ronda-title">Ronda ${r.numero_ronda} — ${r.nombre}</div>
-                <div style="font-size:12px;color:var(--text2);margin-top:2px">${r.descripcion} · ${r.dias} días</div>
-              </div>
-              <span class="status-badge ${r.abierta?'open':'closed'}">${r.abierta?'Abierta':'Cerrada'}</span>
-            </div>
-            <div style="display:flex;gap:8px">
-              <button class="btn btn-sm ${r.abierta?'btn-red':'btn-green'}" onclick="toggleRonda('${r.id}',${r.abierta})">
-                ${r.abierta?'Cerrar ronda':'Abrir ronda'}
-              </button>
-              <button class="btn btn-sm btn-outline" onclick="verSolicitudesRonda('${r.id}','${r.nombre}')">Ver solicitudes</button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-
-      <div>
-        <h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text2)">SOLICITUDES PENDIENTES (${pendientes.length})</h3>
-        ${pendientes.length === 0 ? `<div class="empty-state"><p>No hay solicitudes pendientes</p></div>` :
-          pendientes.slice(0,8).map(s => {
-            const emp = state.empleados.find(e=>e.id===s.empleado_id);
-            return `<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
-              <div style="display:flex;justify-content:space-between;align-items:start">
-                <div>
-                  <div style="font-size:13px;font-weight:600">${emp?.nombre||'?'} ${emp?.apellidos||''}</div>
-                  <div style="font-size:12px;color:var(--text2)">${formatDateES(s.fecha_inicio)} → ${formatDateES(s.fecha_fin)} · ${s.dias_solicitados} días</div>
-                </div>
-                <span class="status-badge pending">Pendiente</span>
-              </div>
-              <div style="display:flex;gap:6px;margin-top:8px">
-                <button class="btn btn-sm btn-green" onclick="aprobarSolicitud('${s.id}')">Aprobar</button>
-                <button class="btn btn-sm btn-red" onclick="rechazarSolicitud('${s.id}')">Rechazar</button>
-              </div>
-            </div>`;
-          }).join('')
-        }
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">Historial de solicitudes</span>
-      </div>
-      <div style="overflow-x:auto">
-        <table class="emp-table">
-          <thead><tr>
-            <th>Empleado</th><th>Ronda</th><th>Fechas</th><th>Días</th><th>Estado</th><th>Notas</th>
-          </tr></thead>
-          <tbody>
-            ${(solicitudes||[]).slice(0,20).map(s => {
-              const emp = state.empleados.find(e=>e.id===s.empleado_id);
-              const ronda = (rondas||[]).find(r=>r.id===s.ronda_id);
-              return `<tr>
-                <td style="font-weight:600">${emp?.nombre||'?'} ${emp?.apellidos||''}</td>
-                <td>${ronda?.nombre||'—'}</td>
-                <td style="font-size:12px">${formatDateES(s.fecha_inicio)} – ${formatDateES(s.fecha_fin)}</td>
-                <td>${s.dias_solicitados}</td>
-                <td><span class="status-badge ${s.estado}">${s.estado}</span></td>
-                <td style="font-size:12px;color:var(--text2)">${s.notas_gestor||'—'}</td>
-              </tr>`;
-            }).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text3)">Sin solicitudes</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+  html += '</div></div>';
+  document.getElementById('page-vacaciones').innerHTML = html;
 }
 
 // =====================================================================
@@ -1785,80 +1604,31 @@ async function renderVacaciones() {
 // =====================================================================
 async function renderIntercambios() {
   let intercambios = [];
-  try {
-    intercambios = await sb.query('intercambios', { select: '*', order: 'created_at.desc', limit: 30 }) || [];
-  } catch(e) { intercambios = []; }
-
+  try { intercambios = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 30 }); } catch (e) {}
   const pendientes = intercambios.filter(i => i.estado === 'pendiente' || i.estado === 'aceptado');
 
-  document.getElementById('page-intercambios').innerHTML = `
-    <div style="display:flex;justify-content:space-between;margin-bottom:20px">
-      <h2 style="font-size:15px;font-weight:600">Intercambios de turno</h2>
-      ${state.user.tipo === 'empleado' ? `<button class="btn btn-blue" onclick="modalNuevoIntercambio()">Solicitar intercambio</button>` : ''}
-    </div>
+  let html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px"><h2 style="font-size:15px;font-weight:600">Intercambios de turno</h2></div>';
 
-    ${pendientes.length > 0 ? `
-    <div class="alert alert-warning" style="margin-bottom:16px">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      <span><strong>${pendientes.length} intercambios</strong> pendientes de revisión</span>
-    </div>` : ''}
+  if (pendientes.length > 0) {
+    html += '<div class="alert alert-warning" style="margin-bottom:16px"><span><strong>' + pendientes.length + ' intercambios</strong> pendientes de revisión</span></div>';
+  }
 
-    <div class="card mb-6">
-      <div class="card-header"><span class="card-title">Pendientes de aprobación</span></div>
-      <div class="card-body">
-        ${pendientes.length === 0 ? '<div class="empty-state"><p>No hay intercambios pendientes</p></div>' :
-          pendientes.map(ic => {
-            const sol = state.empleados.find(e=>e.id===ic.solicitante_id);
-            const rec = state.empleados.find(e=>e.id===ic.receptor_id);
-            return `<div class="intercambio-card">
-              <div class="intercambio-dates">
-                <div class="intercambio-date-box">
-                  <div class="date">${formatDateES(ic.fecha_solicitante)}</div>
-                  <div class="emp">${sol?.nombre||'?'} ${sol?.apellidos||''}</div>
-                </div>
-                <div class="intercambio-arrow">⇄</div>
-                <div class="intercambio-date-box">
-                  <div class="date">${formatDateES(ic.fecha_receptor)}</div>
-                  <div class="emp">${rec?.nombre||'?'} ${rec?.apellidos||''}</div>
-                </div>
-              </div>
-              <div>
-                <span class="status-badge ${ic.estado==='aceptado'?'pending':'closed'}">${ic.estado}</span>
-                ${ic.estado === 'aceptado' ? `
-                  <div style="display:flex;gap:6px;margin-top:8px">
-                    <button class="btn btn-sm btn-green" onclick="aprobarIntercambio('${ic.id}')">Aprobar</button>
-                    <button class="btn btn-sm btn-red" onclick="denegarIntercambio('${ic.id}')">Denegar</button>
-                  </div>` : ''}
-              </div>
-            </div>`;
-          }).join('')
-        }
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-header"><span class="card-title">Historial</span></div>
-      <div style="overflow-x:auto">
-        <table class="emp-table">
-          <thead><tr><th>Solicitante</th><th>Receptor</th><th>Fecha Sol.</th><th>Fecha Rec.</th><th>Estado</th><th>Fecha solicitud</th></tr></thead>
-          <tbody>
-            ${intercambios.map(ic => {
-              const sol = state.empleados.find(e=>e.id===ic.solicitante_id);
-              const rec = state.empleados.find(e=>e.id===ic.receptor_id);
-              return `<tr>
-                <td>${sol?.nombre||'?'} ${sol?.apellidos||''}</td>
-                <td>${rec?.nombre||'?'} ${rec?.apellidos||''}</td>
-                <td>${formatDateES(ic.fecha_solicitante)}</td>
-                <td>${formatDateES(ic.fecha_receptor)}</td>
-                <td><span class="status-badge ${ic.estado}">${ic.estado}</span></td>
-                <td style="font-size:12px;color:var(--text2)">${new Date(ic.created_at).toLocaleDateString('es-ES')}</td>
-              </tr>`;
-            }).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text3)">Sin intercambios</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+  html += '<div class="card"><div class="card-header"><span class="card-title">Historial</span></div>';
+  html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr><th>Solicitante</th><th>Receptor</th><th>Fecha Sol.</th><th>Fecha Rec.</th><th>Estado</th></tr></thead><tbody>';
+  if (intercambios.length === 0) {
+    html += '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin intercambios</td></tr>';
+  }
+  intercambios.forEach(ic => {
+    const sol = state.empleados.find(e => e.id === ic.solicitante_id);
+    const rec = state.empleados.find(e => e.id === ic.receptor_id);
+    html += '<tr><td>' + (sol ? sol.nombre + ' ' + sol.apellidos : '?') + '</td>';
+    html += '<td>' + (rec ? rec.nombre + ' ' + rec.apellidos : '?') + '</td>';
+    html += '<td>' + formatDateES(ic.fecha_solicitante) + '</td>';
+    html += '<td>' + formatDateES(ic.fecha_receptor) + '</td>';
+    html += '<td><span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></td></tr>';
+  });
+  html += '</tbody></table></div></div>';
+  document.getElementById('page-intercambios').innerHTML = html;
 }
 
 // =====================================================================
@@ -1866,444 +1636,297 @@ async function renderIntercambios() {
 // =====================================================================
 async function renderAusencias() {
   let ausencias = [];
-  try {
-    ausencias = await sb.query('ausencias', { select: '*', order: 'fecha_inicio.desc', limit: 30 }) || [];
-  } catch(e) { ausencias = []; }
+  try { ausencias = await sbQuery('ausencias', { select: '*', order: 'fecha_inicio.desc', limit: 30 }); } catch (e) {}
 
-  document.getElementById('page-ausencias').innerHTML = `
-    <div style="display:flex;justify-content:space-between;margin-bottom:20px">
-      <h2 style="font-size:15px;font-weight:600">Ausencias y Coberturas</h2>
-      <button class="btn btn-blue" onclick="modalNuevaAusencia()">Registrar ausencia</button>
-    </div>
-
-    <div class="card">
-      <div style="overflow-x:auto">
-        <table class="emp-table">
-          <thead><tr>
-            <th>Empleado</th><th>Tipo</th><th>Desde</th><th>Hasta</th><th>Cobertura</th><th>Registrada por</th>
-          </tr></thead>
-          <tbody>
-            ${ausencias.map(a => {
-              const emp = state.empleados.find(e=>e.id===a.empleado_id);
-              const cob = a.cobertura_empleado_id ? state.empleados.find(e=>e.id===a.cobertura_empleado_id) : null;
-              return `<tr>
-                <td style="font-weight:600">${emp?.nombre||'?'} ${emp?.apellidos||''}</td>
-                <td><span class="status-badge ${a.tipo==='baja'?'closed':a.tipo==='licencia'?'pending':'open'}">${a.tipo}</span></td>
-                <td>${formatDateES(a.fecha_inicio)}</td>
-                <td>${formatDateES(a.fecha_fin)}</td>
-                <td style="font-size:12px">
-                  ${a.modo_12h ? '<span style="color:var(--warning)">Modo 12h</span>' : cob ? `${cob.nombre} ${cob.apellidos}` : a.cobertura_tipo||'Sin asignar'}
-                </td>
-                <td style="font-size:12px;color:var(--text2)">Gestor</td>
-              </tr>`;
-            }).join('') || '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text3)">Sin ausencias registradas</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  `;
+  let html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px">';
+  html += '<h2 style="font-size:15px;font-weight:600">Ausencias y Coberturas</h2>';
+  html += '<button class="btn btn-blue" onclick="modalNuevaAusencia()">Registrar ausencia</button></div>';
+  html += '<div class="card"><div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
+  html += '<th>Empleado</th><th>Tipo</th><th>Desde</th><th>Hasta</th><th>Cobertura</th></tr></thead><tbody>';
+  if (ausencias.length === 0) {
+    html += '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin ausencias registradas</td></tr>';
+  }
+  ausencias.forEach(a => {
+    const emp = state.empleados.find(e => e.id === a.empleado_id);
+    html += '<tr><td style="font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</td>';
+    html += '<td><span class="status-badge ' + (a.tipo === 'baja' ? 'closed' : 'pending') + '">' + a.tipo + '</span></td>';
+    html += '<td>' + formatDateES(a.fecha_inicio) + '</td>';
+    html += '<td>' + formatDateES(a.fecha_fin) + '</td>';
+    html += '<td style="font-size:12px">' + (a.modo_12h ? 'Modo 12h' : a.cobertura_tipo || '—') + '</td></tr>';
+  });
+  html += '</tbody></table></div></div>';
+  document.getElementById('page-ausencias').innerHTML = html;
 }
 
 // =====================================================================
 // INFORMES
 // =====================================================================
 function renderInformes() {
-  document.getElementById('page-informes').innerHTML = `
-    <div class="grid-2 mb-6">
-      ${[
-        { title: 'Informe de Turnos', desc: 'Resumen mensual por empleado y letra', icon: '📅', action: 'exportTurnos' },
-        { title: 'Horas Trabajadas', desc: 'Cómputo de horas por período', icon: '⏱️', action: 'exportHoras' },
-        { title: 'Vacaciones', desc: 'Estado de vacaciones y rondas', icon: '🌴', action: 'exportVacaciones' },
-        { title: 'Ausencias', desc: 'Registro de bajas y coberturas', icon: '🏥', action: 'exportAusencias' },
-      ].map(r => `
-        <div class="card" style="cursor:pointer" onclick="${r.action}()">
-          <div class="card-body" style="display:flex;gap:16px;align-items:center">
-            <div style="font-size:32px">${r.icon}</div>
-            <div>
-              <div style="font-size:14px;font-weight:600;margin-bottom:4px">${r.title}</div>
-              <div style="font-size:12px;color:var(--text2)">${r.desc}</div>
-              <div style="display:flex;gap:6px;margin-top:10px">
-                <button class="btn btn-sm btn-outline">📄 PDF</button>
-                <button class="btn btn-sm btn-outline">📊 Excel</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      `).join('')}
-    </div>
+  const reports = [
+    { title: 'Informe de Turnos', desc: 'Resumen mensual por empleado y letra', icon: '📅' },
+    { title: 'Horas Trabajadas', desc: 'Cómputo de horas por período', icon: '⏱️' },
+    { title: 'Vacaciones', desc: 'Estado de vacaciones y rondas', icon: '🌴' },
+    { title: 'Ausencias', desc: 'Registro de bajas y coberturas', icon: '🏥' },
+  ];
+  let html = '<div class="grid-2 mb-6">';
+  reports.forEach(r => {
+    html += '<div class="card" style="cursor:pointer" onclick="showToast(\'Generando informe...\')"><div class="card-body" style="display:flex;gap:16px;align-items:center">';
+    html += '<div style="font-size:32px">' + r.icon + '</div><div>';
+    html += '<div style="font-size:14px;font-weight:600;margin-bottom:4px">' + r.title + '</div>';
+    html += '<div style="font-size:12px;color:var(--text2)">' + r.desc + '</div>';
+    html += '<div style="display:flex;gap:6px;margin-top:10px"><button class="btn btn-sm btn-outline">PDF</button><button class="btn btn-sm btn-outline">Excel</button></div>';
+    html += '</div></div></div>';
+  });
+  html += '</div>';
 
-    <div class="card">
-      <div class="card-header"><span class="card-title">Resumen rápido — ${new Date().getFullYear()}</span></div>
-      <div class="card-body">
-        <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
-          ${state.letras.map(l => {
-            const empsLetra = state.empleados.filter(e=>e.letra_id===l.id);
-            return `<div style="background:var(--bg);border-radius:8px;padding:14px">
-              <div style="font-size:11px;font-weight:700;color:${l.color};margin-bottom:4px">Letra ${l.nombre}</div>
-              <div style="font-size:20px;font-weight:700">${empsLetra.length}</div>
-              <div style="font-size:11px;color:var(--text2)">empleados</div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>
-    </div>
-  `;
+  html += '<div class="card"><div class="card-header"><span class="card-title">Resumen por letra</span></div><div class="card-body">';
+  html += '<div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">';
+  state.letras.forEach(l => {
+    const count = state.empleados.filter(e => e.letra_id === l.id).length;
+    html += '<div style="background:var(--bg);border-radius:8px;padding:14px">';
+    html += '<div style="font-size:11px;font-weight:700;color:' + l.color + '">Letra ' + l.nombre + '</div>';
+    html += '<div style="font-size:20px;font-weight:700">' + count + '</div>';
+    html += '<div style="font-size:11px;color:var(--text2)">empleados</div></div>';
+  });
+  html += '</div></div></div>';
+  document.getElementById('page-informes').innerHTML = html;
 }
 
 // =====================================================================
 // CONFIGURACION
 // =====================================================================
-async function renderConfiguracion() {
-  let tab = state.configTab || 'ciclos';
-  
-  let festivos = state.festivos;
+function renderConfiguracion() {
+  const tab = state.configTab || 'ciclos';
+  let html = '<div class="config-tabs">';
+  [['ciclos', 'Ciclos por Letra'], ['festivos', 'Festivos'], ['areas', 'Áreas'], ['letras', 'Letras']].forEach(([id, label]) => {
+    html += '<button class="config-tab' + (tab === id ? ' active' : '') + '" onclick="state.configTab=\'' + id + '\';renderConfiguracion()">' + label + '</button>';
+  });
+  html += '</div>';
 
-  document.getElementById('page-configuracion').innerHTML = `
-    <div class="config-tabs">
-      ${[['ciclos','Ciclos por Letra'],['festivos','Festivos'],['areas','Áreas'],['letras','Letras']].map(([id,label]) =>
-        `<button class="config-tab ${tab===id?'active':''}" onclick="state.configTab='${id}';renderConfiguracion()">${label}</button>`
-      ).join('')}
-    </div>
-    <div id="config-content">${renderConfigTab(tab, festivos)}</div>
-  `;
-}
-
-function renderConfigTab(tab, festivos) {
   if (tab === 'ciclos') {
-    return `
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Ciclos de turno 2026</span>
-          <button class="btn btn-sm btn-blue" onclick="guardarCiclos()">Guardar cambios</button>
-        </div>
-        <div class="card-body">
-          <div class="alert alert-info mb-4">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-            <span>Define los períodos de turno y equipo de refuerzo por letra. El sistema generará automáticamente el calendario.</span>
-          </div>
-          ${state.letras.map(l => {
-            const ciclos = state.ciclosConfig.filter(c=>c.letra_id===l.id).sort((a,b)=>a.orden-b.orden);
-            return `<div style="margin-bottom:20px">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-                <span class="letra-badge" style="background:${l.color}22;color:${l.color}">${l.nombre}</span>
-                <span style="font-size:13px;font-weight:600">Letra ${l.nombre}</span>
-              </div>
-              <div style="overflow-x:auto">
-                <table style="width:100%;border-collapse:collapse;font-size:12px">
-                  <thead>
-                    <tr style="background:var(--bg)">
-                      <th style="padding:6px 10px;text-align:left;font-weight:600">Orden</th>
-                      <th style="padding:6px 10px;text-align:left;font-weight:600">Tipo</th>
-                      <th style="padding:6px 10px;text-align:left;font-weight:600">Fecha inicio</th>
-                      <th style="padding:6px 10px;text-align:left;font-weight:600">Fecha fin</th>
-                      <th style="padding:6px 10px;text-align:left;font-weight:600">Turno inicial</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${ciclos.map(c => `<tr style="border-bottom:1px solid var(--border)">
-                      <td style="padding:6px 10px">${c.orden}</td>
-                      <td style="padding:6px 10px"><span class="status-badge ${c.tipo==='turno'?'approved':'pending'}">${c.tipo}</span></td>
-                      <td style="padding:6px 10px"><input type="date" value="${c.fecha_inicio}" class="form-input" style="padding:4px 8px;font-size:12px"></td>
-                      <td style="padding:6px 10px"><input type="date" value="${c.fecha_fin}" class="form-input" style="padding:4px 8px;font-size:12px"></td>
-                      <td style="padding:6px 10px">
-                        ${c.tipo==='turno' ? `<select class="form-input" style="padding:4px 8px;font-size:12px">
-                          ${['M','T','N','D'].map(t=>`<option ${c.turno_inicial===t?'selected':''}>${t}</option>`).join('')}
-                        </select>` : '<span style="color:var(--text3)">—</span>'}
-                      </td>
-                    </tr>`).join('')}
-                  </tbody>
-                </table>
-              </div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>
-    `;
+    html += '<div class="card"><div class="card-header"><span class="card-title">Ciclos de turno 2026</span></div><div class="card-body">';
+    html += '<div class="alert alert-info mb-4"><span>El sistema genera automáticamente el calendario según estos ciclos.</span></div>';
+    state.letras.forEach(l => {
+      const ciclos = state.ciclosConfig.filter(c => c.letra_id === l.id).sort((a, b) => a.orden - b.orden);
+      html += '<div style="margin-bottom:20px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
+      html += '<span class="letra-badge" style="background:' + l.color + '22;color:' + l.color + '">' + l.nombre + '</span>';
+      html += '<span style="font-size:13px;font-weight:600">Letra ' + l.nombre + '</span></div>';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--bg)">';
+      html += '<th style="padding:6px 10px;text-align:left">Orden</th><th style="padding:6px 10px;text-align:left">Tipo</th>';
+      html += '<th style="padding:6px 10px;text-align:left">Inicio</th><th style="padding:6px 10px;text-align:left">Fin</th>';
+      html += '<th style="padding:6px 10px;text-align:left">Turno inicial</th></tr></thead><tbody>';
+      ciclos.forEach(c => {
+        html += '<tr style="border-bottom:1px solid var(--border)">';
+        html += '<td style="padding:6px 10px">' + c.orden + '</td>';
+        html += '<td style="padding:6px 10px"><span class="status-badge ' + (c.tipo === 'turno' ? 'approved' : 'pending') + '">' + c.tipo + '</span></td>';
+        html += '<td style="padding:6px 10px">' + c.fecha_inicio + '</td>';
+        html += '<td style="padding:6px 10px">' + c.fecha_fin + '</td>';
+        html += '<td style="padding:6px 10px">' + (c.turno_inicial || '—') + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    });
+    html += '</div></div>';
   }
-  
+
   if (tab === 'festivos') {
-    return `
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Festivos 2026</span>
-          <button class="btn btn-sm btn-blue" onclick="modalNuevoFestivo()">+ Añadir festivo</button>
-        </div>
-        <div class="card-body">
-          ${festivos.sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(f => `
-            <div class="festivo-item">
-              <div class="festivo-info">
-                <span class="festivo-date">${formatDateES(f.fecha)}</span>
-                <span class="festivo-name">${f.nombre}</span>
-                <span class="festivo-ambito ambito-${f.ambito||'nacional'}">${f.ambito||'nacional'}</span>
-              </div>
-              <button class="btn btn-sm btn-ghost" onclick="eliminarFestivo('${f.id}')" style="color:var(--danger)">Eliminar</button>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
+    const sorted = [...state.festivos].sort((a, b) => a.fecha.localeCompare(b.fecha));
+    html += '<div class="card"><div class="card-header"><span class="card-title">Festivos 2026</span>';
+    html += '<button class="btn btn-sm btn-blue" onclick="modalNuevoFestivo()">+ Añadir</button></div><div class="card-body">';
+    sorted.forEach(f => {
+      html += '<div class="festivo-item"><div class="festivo-info">';
+      html += '<span class="festivo-date">' + formatDateES(f.fecha) + '</span>';
+      html += '<span class="festivo-name">' + f.nombre + '</span>';
+      html += '<span class="festivo-ambito ambito-' + (f.ambito || 'nacional') + '">' + (f.ambito || 'nacional') + '</span>';
+      html += '</div></div>';
+    });
+    html += '</div></div>';
   }
 
   if (tab === 'areas') {
-    return `
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Áreas de trabajo</span>
-          <button class="btn btn-sm btn-blue" onclick="modalNuevaArea()">+ Añadir área</button>
-        </div>
-        <div class="card-body">
-          ${state.areas.map(a => `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
-              <div style="display:flex;align-items:center;gap:10px">
-                <div style="width:12px;height:12px;border-radius:3px;background:${a.color}"></div>
-                <span style="font-weight:600">${a.nombre}</span>
-                ${!a.permite_polivalencia ? '<span style="font-size:10px;background:#FEE2E2;color:#991B1B;padding:2px 6px;border-radius:4px">Sin polivalencias</span>' : ''}
-              </div>
-              <button class="btn btn-sm btn-ghost" onclick="modalEditarArea('${a.id}')">Editar</button>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
+    html += '<div class="card"><div class="card-header"><span class="card-title">Áreas de trabajo</span></div><div class="card-body">';
+    state.areas.forEach(a => {
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">';
+      html += '<div style="display:flex;align-items:center;gap:10px">';
+      html += '<div style="width:12px;height:12px;border-radius:3px;background:' + a.color + '"></div>';
+      html += '<span style="font-weight:600">' + a.nombre + '</span>';
+      if (!a.permite_polivalencia) html += '<span style="font-size:10px;background:#FEE2E2;color:#991B1B;padding:2px 6px;border-radius:4px">Sin polivalencias</span>';
+      html += '</div></div>';
+    });
+    html += '</div></div>';
   }
 
   if (tab === 'letras') {
-    return `
-      <div class="card">
-        <div class="card-header"><span class="card-title">Letras / Grupos</span></div>
-        <div class="card-body">
-          ${state.letras.map(l => {
-            const count = state.empleados.filter(e=>e.letra_id===l.id).length;
-            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
-              <div style="display:flex;align-items:center;gap:10px">
-                <span class="letra-badge" style="background:${l.color}22;color:${l.color};width:32px;text-align:center">${l.nombre}</span>
-                <span style="font-weight:600">Letra ${l.nombre}</span>
-                <span style="font-size:12px;color:var(--text2)">${count} empleados</span>
-              </div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>
-    `;
+    html += '<div class="card"><div class="card-header"><span class="card-title">Letras / Grupos</span></div><div class="card-body">';
+    state.letras.forEach(l => {
+      const count = state.empleados.filter(e => e.letra_id === l.id).length;
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">';
+      html += '<div style="display:flex;align-items:center;gap:10px">';
+      html += '<span class="letra-badge" style="background:' + l.color + '22;color:' + l.color + ';width:32px;text-align:center">' + l.nombre + '</span>';
+      html += '<span style="font-weight:600">Letra ' + l.nombre + '</span>';
+      html += '<span style="font-size:12px;color:var(--text2)">' + count + ' empleados</span>';
+      html += '</div></div>';
+    });
+    html += '</div></div>';
   }
-  return '';
+
+  document.getElementById('page-configuracion').innerHTML = html;
 }
 
 // =====================================================================
 // MI TURNO (empleado)
 // =====================================================================
 function renderMiTurno() {
-  if (state.user.tipo !== 'empleado') { navigateTo('dashboard'); return; }
-  const emp = state.user.empleadoData || state.empleados.find(e=>e.id===state.user.id);
+  const emp = state.user.empleadoData || state.empleados.find(e => e.id === state.user.id);
   if (!emp) { document.getElementById('page-mi-turno').innerHTML = '<div class="empty-state"><p>Cargando...</p></div>'; return; }
-  
+
   const hoy = todayStr();
-  const turnoHoy = calcTurno(emp, hoy, state.ciclosConfig, state.festivos);
-  const turnoNames = { M: 'Mañana', T: 'Tarde', N: 'Noche', D: 'Descanso', R: 'Refuerzo', V: 'Vacaciones', B: 'Baja', '': 'Sin datos' };
-  const letra = state.letras.find(l=>l.id===emp.letra_id);
-  const area = state.areas.find(a=>a.id===emp.area_principal_id);
+  const t = calcTurno(emp, hoy);
+  const letra = getLetra(emp.letra_id);
+  const area = getArea(emp.area_principal_id);
 
-  const proximos = [0,1,2,3,4,5,6].map(offset => {
-    const d = new Date(); d.setDate(d.getDate() + offset);
-    const ds = d.toISOString().split('T')[0];
-    const t = calcTurno(emp, ds, state.ciclosConfig, state.festivos);
-    const dayNames = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-    return { ds, t, dayName: dayNames[d.getDay()], dayNum: d.getDate(), isToday: offset===0 };
-  });
+  let html = '<div class="my-turno-today"><div style="display:flex;justify-content:space-between;align-items:flex-start">';
+  html += '<div><div style="font-size:12px;opacity:0.6;text-transform:uppercase;letter-spacing:1px">Hoy, ' + formatDateES(hoy) + '</div>';
+  html += '<div class="turno-big">' + (t || '?') + '</div>';
+  html += '<div class="turno-name">' + turnoLabel(t) + '</div>';
+  html += '<div class="turno-date">Letra ' + (letra ? letra.nombre : '?') + ' · ' + (area ? area.nombre : '?') + '</div></div>';
+  html += '<div style="text-align:right;opacity:0.7">' + (t === 'M' ? '06:00 – 14:00' : t === 'T' ? '14:00 – 22:00' : t === 'N' ? '22:00 – 06:00' : '') + '</div>';
+  html += '</div></div>';
 
-  document.getElementById('page-mi-turno').innerHTML = `
-    <div class="my-turno-today">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div>
-          <div style="font-size:12px;opacity:0.6;text-transform:uppercase;letter-spacing:1px">Hoy, ${formatDateES(hoy)}</div>
-          <div class="turno-big">${turnoHoy||'?'}</div>
-          <div class="turno-name">${turnoNames[turnoHoy]||''}</div>
-          <div class="turno-date">Letra ${letra?.nombre||'?'} · ${area?.nombre||'?'}</div>
-        </div>
-        <div style="text-align:right;opacity:0.7">
-          ${turnoHoy==='M'?'06:00 – 14:00':turnoHoy==='T'?'14:00 – 22:00':turnoHoy==='N'?'22:00 – 06:00':''}
-        </div>
-      </div>
-    </div>
+  html += '<h3 style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px">PRÓXIMOS 7 DÍAS</h3>';
+  html += '<div class="proximos-grid">';
+  const dayNames = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(); d.setDate(d.getDate() + i);
+    const ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const pt = calcTurno(emp, ds);
+    html += '<div class="proximo-day' + (i === 0 ? ' today' : '') + '">';
+    html += '<div class="day-name">' + dayNames[d.getDay()] + '</div>';
+    html += '<div class="day-num">' + d.getDate() + '</div>';
+    html += '<span class="turno-badge ' + (pt || 'D') + '">' + (pt || 'D') + '</span></div>';
+  }
+  html += '</div>';
 
-    <h3 style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px">PRÓXIMOS 7 DÍAS</h3>
-    <div class="proximos-grid">
-      ${proximos.map(p => `
-        <div class="proximo-day ${p.isToday?'today':''}">
-          <div class="day-name">${p.dayName}</div>
-          <div class="day-num">${p.dayNum}</div>
-          <span class="turno-badge ${p.t||'D'}">${p.t||'D'}</span>
-        </div>
-      `).join('')}
-    </div>
+  html += '<div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Mis datos</span></div><div class="card-body">';
+  html += '<div style="display:flex;flex-direction:column;gap:10px;font-size:13px">';
+  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Nombre</span><span style="font-weight:600">' + emp.nombre + ' ' + emp.apellidos + '</span></div>';
+  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Usuario</span><code>' + emp.username + '</code></div>';
+  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Letra</span><span class="letra-badge" style="background:' + (letra ? letra.color + '22' : '#eee') + ';color:' + (letra ? letra.color : '#999') + '">' + (letra ? letra.nombre : '?') + '</span></div>';
+  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Área</span><span style="font-weight:600">' + (area ? area.nombre : '—') + '</span></div>';
+  html += '</div></div></div>';
 
-    <div class="grid-2">
-      <div class="card">
-        <div class="card-header"><span class="card-title">Mis datos</span></div>
-        <div class="card-body">
-          <div style="display:flex;flex-direction:column;gap:10px;font-size:13px">
-            <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Nombre</span><span style="font-weight:600">${emp.nombre} ${emp.apellidos}</span></div>
-            <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Usuario</span><code>${emp.username}</code></div>
-            <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Letra</span><span class="letra-badge" style="background:${letra?.color}22;color:${letra?.color}">${letra?.nombre}</span></div>
-            <div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Área principal</span><span style="font-weight:600">${area?.nombre||'—'}</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-header"><span class="card-title">Acciones rápidas</span></div>
-        <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
-          <button class="btn btn-outline w-full" onclick="navigateTo('mi-calendario')">Ver mi calendario completo</button>
-          <button class="btn btn-outline w-full" onclick="navigateTo('mis-solicitudes')">Mis solicitudes</button>
-          <button class="btn btn-outline w-full" onclick="modalSolicitarVacaciones()">Solicitar vacaciones</button>
-          <button class="btn btn-outline w-full" onclick="modalSolicitarIntercambio()">Proponer intercambio</button>
-        </div>
-      </div>
-    </div>
-  `;
+  html += '<div class="card"><div class="card-header"><span class="card-title">Acciones</span></div><div class="card-body" style="display:flex;flex-direction:column;gap:8px">';
+  html += '<button class="btn btn-outline w-full" onclick="navigateTo(\'mi-calendario\')">Ver mi calendario</button>';
+  html += '<button class="btn btn-outline w-full" onclick="navigateTo(\'mis-solicitudes\')">Mis solicitudes</button>';
+  html += '</div></div></div>';
+
+  document.getElementById('page-mi-turno').innerHTML = html;
 }
 
 // =====================================================================
 // MI CALENDARIO (empleado)
 // =====================================================================
 function renderMiCalendario() {
-  const emp = state.user.empleadoData || state.empleados.find(e=>e.id===state.user.id);
+  const emp = state.user.empleadoData || state.empleados.find(e => e.id === state.user.id);
   if (!emp) return;
 
-  const año = state.calAño;
+  const year = state.calYear;
   const mes = state.calMes;
-  const diasMes = new Date(año, mes + 1, 0).getDate();
+  const diasMes = new Date(year, mes + 1, 0).getDate();
   const nombresMes = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  const letra = state.letras.find(l=>l.id===emp.letra_id);
+  const letra = getLetra(emp.letra_id);
+  const dayNames = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
-  const dias = Array.from({length:diasMes}, (_,i) => {
-    const d = new Date(año, mes, i+1);
-    const ds = `${año}-${String(mes+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`;
-    const t = calcTurno(emp, ds, state.ciclosConfig, state.festivos);
-    const isWeekend = d.getDay()===0||d.getDay()===6;
-    const isFestivo = state.festivos.some(f=>f.fecha===ds);
-    const isToday = ds === todayStr();
-    const dayNames = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-    return { num: i+1, ds, t, isWeekend, isFestivo, isToday, dayName: dayNames[d.getDay()] };
+  let html = '<div class="cal-controls"><div class="cal-nav">';
+  html += '<button class="cal-nav-btn" onclick="calPrev();renderMiCalendario()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>';
+  html += '<span class="cal-month-label">' + nombresMes[mes] + ' ' + year + '</span>';
+  html += '<button class="cal-nav-btn" onclick="calNext();renderMiCalendario()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>';
+  html += '</div></div>';
+
+  html += '<div class="card"><div class="card-header"><span class="card-title">' + emp.nombre + ' ' + emp.apellidos + ' — Letra ' + (letra ? letra.nombre : '?') + '</span></div>';
+  html += '<div style="padding:16px"><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">';
+  ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].forEach(d => {
+    html += '<div style="text-align:center;font-size:10px;font-weight:700;color:var(--text3);padding:4px">' + d + '</div>';
   });
 
-  document.getElementById('page-mi-calendario').innerHTML = `
-    <div class="cal-controls">
-      <div class="cal-nav">
-        <button class="cal-nav-btn" onclick="calPrev();renderMiCalendario()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <span class="cal-month-label">${nombresMes[mes]} ${año}</span>
-        <button class="cal-nav-btn" onclick="calNext();renderMiCalendario()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-      </div>
-      <button class="btn btn-outline btn-sm" onclick="exportMiCalendarioPDF()">📄 Exportar PDF</button>
-    </div>
+  const firstDay = new Date(year, mes, 1).getDay();
+  const offset = firstDay === 0 ? 6 : firstDay - 1;
+  for (let i = 0; i < offset; i++) html += '<div></div>';
 
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">${emp.nombre} ${emp.apellidos} — Letra ${letra?.nombre||'?'}</span>
-      </div>
-      <div style="padding:16px">
-        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">
-          ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d=>`<div style="text-align:center;font-size:10px;font-weight:700;color:var(--text3);padding:4px">${d}</div>`).join('')}
-          ${(() => {
-            const firstDay = new Date(año,mes,1).getDay();
-            const offset = firstDay===0?6:firstDay-1;
-            let cells = Array(offset).fill('<div></div>');
-            cells = cells.concat(dias.map(d => `
-              <div style="border-radius:8px;border:1px solid ${d.isToday?'var(--primary-light)':d.isFestivo?'#FDE68A':'var(--border)'};background:${d.isToday?'#EFF6FF':d.isFestivo?'#FFFBEB':'white'};padding:6px;text-align:center;min-height:52px">
-                <div style="font-size:10px;color:${d.isWeekend?'var(--danger)':'var(--text3)'};font-weight:600">${d.dayName}</div>
-                <div style="font-size:14px;font-weight:700;color:${d.isToday?'var(--primary-light)':'var(--text)'}">${d.num}</div>
-                <span class="turno-badge ${d.t||'D'}" style="margin-top:2px">${d.t||'D'}</span>
-              </div>
-            `));
-            return cells.join('');
-          })()}
-        </div>
-        <div class="legend-row">
-          ${[['M','Mañana'],['T','Tarde'],['N','Noche'],['D','Descanso'],['R','Refuerzo']].map(([k,v]) =>
-            `<div class="legend-item"><span class="turno-badge ${k}">${k}</span> ${v}</div>`
-          ).join('')}
-        </div>
-      </div>
-    </div>
-  `;
+  for (let i = 1; i <= diasMes; i++) {
+    const d = new Date(year, mes, i);
+    const ds = year + '-' + String(mes + 1).padStart(2, '0') + '-' + String(i).padStart(2, '0');
+    const pt = calcTurno(emp, ds);
+    const isToday = ds === todayStr();
+    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+    const isFestivo = state.festivos.some(f => f.fecha === ds);
+
+    html += '<div style="border-radius:8px;border:1px solid ' + (isToday ? 'var(--primary-light)' : isFestivo ? '#FDE68A' : 'var(--border)') + ';background:' + (isToday ? '#EFF6FF' : isFestivo ? '#FFFBEB' : 'white') + ';padding:6px;text-align:center;min-height:52px">';
+    html += '<div style="font-size:10px;color:' + (isWeekend ? 'var(--danger)' : 'var(--text3)') + ';font-weight:600">' + dayNames[d.getDay()] + '</div>';
+    html += '<div style="font-size:14px;font-weight:700;color:' + (isToday ? 'var(--primary-light)' : 'var(--text)') + '">' + i + '</div>';
+    html += '<span class="turno-badge ' + (pt || 'D') + '" style="margin-top:2px">' + (pt || 'D') + '</span></div>';
+  }
+
+  html += '</div>';
+  html += '<div class="legend-row">';
+  [['M','Mañana'],['T','Tarde'],['N','Noche'],['D','Descanso'],['R','Refuerzo']].forEach(([k, v]) => {
+    html += '<div class="legend-item"><span class="turno-badge ' + k + '">' + k + '</span> ' + v + '</div>';
+  });
+  html += '</div></div></div>';
+
+  document.getElementById('page-mi-calendario').innerHTML = html;
 }
 
 // =====================================================================
 // MIS SOLICITUDES (empleado)
 // =====================================================================
 async function renderMisSolicitudes() {
-  let solicitudesVac = [];
-  let intercambios = [];
+  let vacSol = [], intercambios = [];
   try {
-    if (state.user.id !== 'gestor-demo') {
-      solicitudesVac = await sb.query('vacaciones_solicitudes', { select: '*', filter: { empleado_id: `eq.${state.user.id}` }, order: 'created_at.desc' }) || [];
-      intercambios = await sb.query('intercambios', { select: '*', filter: `or=(solicitante_id.eq.${state.user.id},receptor_id.eq.${state.user.id})`, order: 'created_at.desc' }) || [];
-    }
-  } catch(e) { }
+    vacSol = await sbQuery('vacaciones_solicitudes', { select: '*', filters: ['empleado_id=eq.' + state.user.id], order: 'created_at.desc' });
+  } catch (e) {}
+  try {
+    intercambios = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 20 });
+    intercambios = intercambios.filter(ic => ic.solicitante_id === state.user.id || ic.receptor_id === state.user.id);
+  } catch (e) {}
 
-  document.getElementById('page-mis-solicitudes').innerHTML = `
-    <div class="grid-2">
-      <div>
-        <h3 style="font-size:13px;font-weight:600;margin-bottom:12px">MIS VACACIONES</h3>
-        <button class="btn btn-blue btn-sm mb-4" onclick="modalSolicitarVacaciones()">+ Solicitar vacaciones</button>
-        ${solicitudesVac.length === 0 ? '<div class="empty-state"><p>Sin solicitudes de vacaciones</p></div>' :
-          solicitudesVac.map(s => `<div class="vac-ronda-card">
-            <div class="vac-ronda-header">
-              <div>
-                <div style="font-size:13px;font-weight:600">${formatDateES(s.fecha_inicio)} – ${formatDateES(s.fecha_fin)}</div>
-                <div style="font-size:11px;color:var(--text2)">${s.dias_solicitados} días solicitados</div>
-              </div>
-              <span class="status-badge ${s.estado}">${s.estado}</span>
-            </div>
-            ${s.notas_gestor ? `<div style="font-size:12px;color:var(--text2);margin-top:4px">Gestor: ${s.notas_gestor}</div>` : ''}
-          </div>`).join('')
-        }
-      </div>
-      <div>
-        <h3 style="font-size:13px;font-weight:600;margin-bottom:12px">MIS INTERCAMBIOS</h3>
-        <button class="btn btn-blue btn-sm mb-4" onclick="modalSolicitarIntercambio()">+ Proponer intercambio</button>
-        ${intercambios.length === 0 ? '<div class="empty-state"><p>Sin intercambios</p></div>' :
-          intercambios.map(ic => {
-            const otro = state.empleados.find(e => e.id === (ic.solicitante_id===state.user.id?ic.receptor_id:ic.solicitante_id));
-            return `<div class="vac-ronda-card">
-              <div class="vac-ronda-header">
-                <div>
-                  <div style="font-size:13px;font-weight:600">Con ${otro?.nombre||'?'} ${otro?.apellidos||''}</div>
-                  <div style="font-size:11px;color:var(--text2)">${formatDateES(ic.fecha_solicitante)} ⇄ ${formatDateES(ic.fecha_receptor)}</div>
-                </div>
-                <span class="status-badge ${ic.estado}">${ic.estado}</span>
-              </div>
-            </div>`;
-          }).join('')
-        }
-      </div>
-    </div>
-  `;
+  let html = '<div class="grid-2"><div>';
+  html += '<h3 style="font-size:13px;font-weight:600;margin-bottom:12px">MIS VACACIONES</h3>';
+  if (vacSol.length === 0) html += '<div class="empty-state"><p>Sin solicitudes</p></div>';
+  vacSol.forEach(s => {
+    html += '<div class="vac-ronda-card"><div class="vac-ronda-header"><div>';
+    html += '<div style="font-size:13px;font-weight:600">' + formatDateES(s.fecha_inicio) + ' – ' + formatDateES(s.fecha_fin) + '</div>';
+    html += '<div style="font-size:11px;color:var(--text2)">' + s.dias_solicitados + ' días</div></div>';
+    html += '<span class="status-badge ' + s.estado + '">' + s.estado + '</span></div></div>';
+  });
+
+  html += '</div><div>';
+  html += '<h3 style="font-size:13px;font-weight:600;margin-bottom:12px">MIS INTERCAMBIOS</h3>';
+  if (intercambios.length === 0) html += '<div class="empty-state"><p>Sin intercambios</p></div>';
+  intercambios.forEach(ic => {
+    const otro = state.empleados.find(e => e.id === (ic.solicitante_id === state.user.id ? ic.receptor_id : ic.solicitante_id));
+    html += '<div class="vac-ronda-card"><div class="vac-ronda-header"><div>';
+    html += '<div style="font-size:13px;font-weight:600">Con ' + (otro ? otro.nombre + ' ' + otro.apellidos : '?') + '</div>';
+    html += '<div style="font-size:11px;color:var(--text2)">' + formatDateES(ic.fecha_solicitante) + ' ⇄ ' + formatDateES(ic.fecha_receptor) + '</div></div>';
+    html += '<span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></div></div>';
+  });
+  html += '</div></div>';
+  document.getElementById('page-mis-solicitudes').innerHTML = html;
 }
 
 // =====================================================================
 // MODALS
 // =====================================================================
-function openModal(title, body, footer='') {
+function openModal(title, body, footer) {
   const existing = document.getElementById('global-modal');
   if (existing) existing.remove();
   const m = document.createElement('div');
   m.className = 'modal-overlay';
   m.id = 'global-modal';
-  m.innerHTML = `
-    <div class="modal" onclick="event.stopPropagation()">
-      <div class="modal-header">
-        <span class="modal-title">${title}</span>
-        <button class="modal-close" onclick="closeModal()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">${body}</div>
-      ${footer?`<div class="modal-footer">${footer}</div>`:''}
-    </div>`;
+  m.innerHTML = '<div class="modal" onclick="event.stopPropagation()">' +
+    '<div class="modal-header"><span class="modal-title">' + title + '</span>' +
+    '<button class="modal-close" onclick="closeModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>' +
+    '<div class="modal-body">' + body + '</div>' +
+    (footer ? '<div class="modal-footer">' + footer + '</div>' : '') + '</div>';
   m.onclick = closeModal;
   document.body.appendChild(m);
 }
@@ -2314,35 +1937,21 @@ function closeModal() {
 }
 
 function modalNuevoEmpleado() {
-  openModal('Nuevo empleado', `
-    <div class="grid-2">
-      <div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="ne-nombre" placeholder="Nombre"></div>
-      <div class="form-group"><label class="form-label">Apellidos</label><input class="form-input" id="ne-apellidos" placeholder="Apellidos"></div>
-    </div>
-    <div class="grid-2">
-      <div class="form-group"><label class="form-label">Usuario</label><input class="form-input" id="ne-user" placeholder="p.ejemplo"></div>
-      <div class="form-group"><label class="form-label">Contraseña inicial</label><input class="form-input" id="ne-pass" placeholder="Contraseña" value="Turnox2026"></div>
-    </div>
-    <div class="grid-2">
-      <div class="form-group">
-        <label class="form-label">Letra</label>
-        <select class="form-input" id="ne-letra">
-          ${state.letras.map(l=>`<option value="${l.id}">Letra ${l.nombre}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Área principal</label>
-        <select class="form-input" id="ne-area">
-          ${state.areas.map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-group"><label class="form-label">Teléfono (opcional)</label><input class="form-input" id="ne-tel" placeholder="600 000 000"></div>
-    <div class="form-group"><label class="form-label">Notas internas</label><textarea class="form-input" id="ne-notas" rows="2" placeholder="Solo visible para gestores"></textarea></div>
-  `, `
-    <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-    <button class="btn btn-blue" onclick="crearEmpleado()">Crear empleado</button>
-  `);
+  let body = '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="ne-nombre"></div>';
+  body += '<div class="form-group"><label class="form-label">Apellidos</label><input class="form-input" id="ne-apellidos"></div></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Usuario</label><input class="form-input" id="ne-user" placeholder="p.ejemplo"></div>';
+  body += '<div class="form-group"><label class="form-label">Contraseña</label><input class="form-input" id="ne-pass" value="Turnox2026"></div></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Letra</label><select class="form-input" id="ne-letra">';
+  state.letras.forEach(l => { body += '<option value="' + l.id + '">Letra ' + l.nombre + '</option>'; });
+  body += '</select></div>';
+  body += '<div class="form-group"><label class="form-label">Área principal</label><select class="form-input" id="ne-area">';
+  state.areas.forEach(a => { body += '<option value="' + a.id + '">' + a.nombre + '</option>'; });
+  body += '</select></div></div>';
+  const footer = '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-blue" onclick="crearEmpleado()">Crear</button>';
+  openModal('Nuevo empleado', body, footer);
 }
 
 async function crearEmpleado() {
@@ -2354,332 +1963,142 @@ async function crearEmpleado() {
     password_hash: document.getElementById('ne-pass').value,
     letra_id: document.getElementById('ne-letra').value,
     area_principal_id: document.getElementById('ne-area').value,
-    telefono: document.getElementById('ne-tel').value,
-    notas: document.getElementById('ne-notas').value,
   };
-  if (!data.nombre||!data.apellidos||!data.username) { showToast('Rellena los campos obligatorios','error'); return; }
+  if (!data.nombre || !data.apellidos || !data.username) { showToast('Rellena los campos obligatorios', 'error'); return; }
   try {
-    await sb.insert('empleados', data);
-    state.empleados = await sb.query('empleados', { select: '*', filter: { planta_id: `eq.${PLANTA_ID}`, activo: 'eq.true' }, order: 'nombre.asc' });
+    await sbInsert('empleados', data);
+    state.empleados = await sbQuery('empleados', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID, 'activo=eq.true'], order: 'nombre.asc' });
     closeModal();
     renderEmpleados();
-    showToast('Empleado creado correctamente','success');
-  } catch(e) { showToast('Error al crear el empleado','error'); }
+    showToast('Empleado creado', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 function modalNuevoFestivo() {
-  openModal('Añadir festivo', `
-    <div class="form-group"><label class="form-label">Fecha</label><input type="date" class="form-input" id="nf-fecha"></div>
-    <div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="nf-nombre" placeholder="Ej: San José"></div>
-    <div class="form-group">
-      <label class="form-label">Ámbito</label>
-      <select class="form-input" id="nf-ambito">
-        <option value="nacional">Nacional</option>
-        <option value="provincial">Provincial (Andalucía)</option>
-        <option value="local">Local (Huelva)</option>
-      </select>
-    </div>
-  `, `
-    <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-    <button class="btn btn-blue" onclick="crearFestivo()">Añadir</button>
-  `);
+  let body = '<div class="form-group"><label class="form-label">Fecha</label><input type="date" class="form-input" id="nf-fecha"></div>';
+  body += '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="nf-nombre" placeholder="Ej: San José"></div>';
+  body += '<div class="form-group"><label class="form-label">Ámbito</label><select class="form-input" id="nf-ambito">';
+  body += '<option value="nacional">Nacional</option><option value="provincial">Provincial</option><option value="local">Local</option></select></div>';
+  openModal('Añadir festivo', body, '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-blue" onclick="crearFestivo()">Añadir</button>');
 }
 
 async function crearFestivo() {
-  const data = {
-    planta_id: PLANTA_ID,
-    fecha: document.getElementById('nf-fecha').value,
-    nombre: document.getElementById('nf-nombre').value.trim(),
-    ambito: document.getElementById('nf-ambito').value,
-    año: new Date().getFullYear(),
-  };
-  if (!data.fecha||!data.nombre) { showToast('Rellena todos los campos','error'); return; }
+  const fecha = document.getElementById('nf-fecha').value;
+  const nombre = document.getElementById('nf-nombre').value.trim();
+  if (!fecha || !nombre) { showToast('Rellena todos los campos', 'error'); return; }
   try {
-    await sb.insert('festivos', data);
-    state.festivos = await sb.query('festivos', { select: '*', filter: { planta_id: `eq.${PLANTA_ID}` } });
+    await sbInsert('festivos', { planta_id: PLANTA_ID, fecha: fecha, nombre: nombre, ambito: document.getElementById('nf-ambito').value, "año": 2026 });
+    state.festivos = await sbQuery('festivos', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] });
     closeModal();
     renderConfiguracion();
-    showToast('Festivo añadido','success');
-  } catch(e) { showToast('Error al añadir festivo','error'); }
+    showToast('Festivo añadido', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 function modalNuevaAusencia() {
-  openModal('Registrar ausencia', `
-    <div class="form-group">
-      <label class="form-label">Empleado</label>
-      <select class="form-input" id="na-emp">
-        ${state.empleados.map(e=>`<option value="${e.id}">${e.nombre} ${e.apellidos} (${state.letras.find(l=>l.id===e.letra_id)?.nombre||'?'})</option>`).join('')}
-      </select>
-    </div>
-    <div class="grid-2">
-      <div class="form-group"><label class="form-label">Tipo</label>
-        <select class="form-input" id="na-tipo">
-          <option value="baja">Baja médica</option>
-          <option value="licencia">Licencia</option>
-          <option value="ausencia">Ausencia</option>
-        </select>
-      </div>
-      <div class="form-group"><label class="form-label">Cobertura</label>
-        <select class="form-input" id="na-cob">
-          <option value="refuerzo">Equipo refuerzo</option>
-          <option value="polivalente">Polivalente</option>
-          <option value="12h">Modo 12 horas</option>
-          <option value="sin_cobertura">Sin cobertura</option>
-        </select>
-      </div>
-    </div>
-    <div class="grid-2">
-      <div class="form-group"><label class="form-label">Desde</label><input type="date" class="form-input" id="na-inicio"></div>
-      <div class="form-group"><label class="form-label">Hasta</label><input type="date" class="form-input" id="na-fin"></div>
-    </div>
-    <div class="form-group"><label class="form-label">Notas</label><textarea class="form-input" id="na-notas" rows="2"></textarea></div>
-  `, `
-    <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-    <button class="btn btn-blue" onclick="crearAusencia()">Registrar</button>
-  `);
+  let body = '<div class="form-group"><label class="form-label">Empleado</label><select class="form-input" id="na-emp">';
+  state.empleados.forEach(e => {
+    const l = getLetra(e.letra_id);
+    body += '<option value="' + e.id + '">' + e.nombre + ' ' + e.apellidos + ' (' + (l ? l.nombre : '?') + ')</option>';
+  });
+  body += '</select></div>';
+  body += '<div class="grid-2"><div class="form-group"><label class="form-label">Tipo</label><select class="form-input" id="na-tipo">';
+  body += '<option value="baja">Baja médica</option><option value="licencia">Licencia</option><option value="ausencia">Ausencia</option></select></div>';
+  body += '<div class="form-group"><label class="form-label">Cobertura</label><select class="form-input" id="na-cob">';
+  body += '<option value="refuerzo">Refuerzo</option><option value="polivalente">Polivalente</option><option value="12h">Modo 12h</option><option value="sin_cobertura">Sin cobertura</option></select></div></div>';
+  body += '<div class="grid-2"><div class="form-group"><label class="form-label">Desde</label><input type="date" class="form-input" id="na-inicio"></div>';
+  body += '<div class="form-group"><label class="form-label">Hasta</label><input type="date" class="form-input" id="na-fin"></div></div>';
+  openModal('Registrar ausencia', body, '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-blue" onclick="crearAusencia()">Registrar</button>');
 }
 
 async function crearAusencia() {
-  const data = {
-    empleado_id: document.getElementById('na-emp').value,
-    tipo: document.getElementById('na-tipo').value,
-    fecha_inicio: document.getElementById('na-inicio').value,
-    fecha_fin: document.getElementById('na-fin').value,
-    cobertura_tipo: document.getElementById('na-cob').value,
-    modo_12h: document.getElementById('na-cob').value === '12h',
-    notas: document.getElementById('na-notas').value,
-  };
-  if (!data.fecha_inicio||!data.fecha_fin) { showToast('Indica las fechas','error'); return; }
+  const inicio = document.getElementById('na-inicio').value;
+  const fin = document.getElementById('na-fin').value;
+  if (!inicio || !fin) { showToast('Indica las fechas', 'error'); return; }
   try {
-    await sb.insert('ausencias', data);
+    await sbInsert('ausencias', {
+      empleado_id: document.getElementById('na-emp').value,
+      tipo: document.getElementById('na-tipo').value,
+      fecha_inicio: inicio,
+      fecha_fin: fin,
+      cobertura_tipo: document.getElementById('na-cob').value,
+      modo_12h: document.getElementById('na-cob').value === '12h',
+    });
     closeModal();
     renderAusencias();
-    showToast('Ausencia registrada','success');
-  } catch(e) { showToast('Error al registrar ausencia','error'); }
-}
-
-function modalSolicitarVacaciones() {
-  openModal('Solicitar vacaciones', `
-    <div class="alert alert-info mb-4">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/></svg>
-      <span>Las solicitudes quedan pendientes de aprobación del gestor.</span>
-    </div>
-    <div class="form-group"><label class="form-label">Ronda</label>
-      <select class="form-input" id="sv-ronda">
-        <option value="r1">Ronda 1 — 6 días</option>
-        <option value="r2">Ronda 2 — 6 días</option>
-        <option value="r3">PRL — 4 días</option>
-      </select>
-    </div>
-    <div class="grid-2">
-      <div class="form-group"><label class="form-label">Fecha inicio</label><input type="date" class="form-input" id="sv-inicio"></div>
-      <div class="form-group"><label class="form-label">Fecha fin</label><input type="date" class="form-input" id="sv-fin"></div>
-    </div>
-    <div class="form-group"><label class="form-label">Notas</label><textarea class="form-input" id="sv-notas" rows="2" placeholder="Información adicional (opcional)"></textarea></div>
-  `, `
-    <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-    <button class="btn btn-blue" onclick="enviarSolicitudVacaciones()">Enviar solicitud</button>
-  `);
-}
-
-function modalSolicitarIntercambio() {
-  openModal('Proponer intercambio de turno', `
-    <div class="alert alert-info mb-4">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/></svg>
-      <span>El compañero deberá aceptar y el gestor aprobará el intercambio.</span>
-    </div>
-    <div class="form-group"><label class="form-label">Compañero</label>
-      <select class="form-input" id="si-receptor">
-        ${state.empleados.filter(e=>e.id!==state.user.id).map(e=>`<option value="${e.id}">${e.nombre} ${e.apellidos}</option>`).join('')}
-      </select>
-    </div>
-    <div class="grid-2">
-      <div class="form-group"><label class="form-label">Mi día (que cedo)</label><input type="date" class="form-input" id="si-mifecha"></div>
-      <div class="form-group"><label class="form-label">Su día (que recibo)</label><input type="date" class="form-input" id="si-sufecha"></div>
-    </div>
-    <div class="form-group"><label class="form-label">Notas</label><textarea class="form-input" id="si-notas" rows="2"></textarea></div>
-  `, `
-    <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-    <button class="btn btn-blue" onclick="enviarSolicitudIntercambio()">Proponer intercambio</button>
-  `);
+    showToast('Ausencia registrada', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 function editarTurno(empId, fecha, turnoActual) {
   if (state.user.tipo !== 'gestor') return;
-  const emp = state.empleados.find(e=>e.id===empId);
-  openModal(`Editar turno — ${emp?.nombre||''} · ${formatDateES(fecha)}`, `
-    <div class="form-group">
-      <label class="form-label">Turno actual</label>
-      <div style="margin-bottom:12px"><span class="turno-badge ${turnoActual}">${turnoActual||'—'}</span> <span style="font-size:12px;color:var(--text2)">${{M:'Mañana',T:'Tarde',N:'Noche',D:'Descanso',R:'Refuerzo',V:'Vacaciones',B:'Baja'}[turnoActual]||''}</span></div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Nuevo turno</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${['M','T','N','D','R','V','B'].map(t=>`<button class="turno-cell ${t}" onclick="guardarTurnoEdit('${empId}','${fecha}','${t}')" style="width:44px;height:44px;font-size:14px;cursor:pointer">${t}</button>`).join('')}
-      </div>
-    </div>
-    <div class="form-group"><label class="form-label">Notas</label><input class="form-input" id="et-notas" placeholder="Motivo del cambio (opcional)"></div>
-  `);
+  const emp = state.empleados.find(e => e.id === empId);
+  let body = '<p style="margin-bottom:12px">Turno actual: <span class="turno-badge ' + turnoActual + '">' + turnoActual + '</span> ' + turnoLabel(turnoActual) + '</p>';
+  body += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  ['M','T','N','D','R','V','B'].forEach(t => {
+    body += '<button class="turno-cell ' + t + '" onclick="guardarTurnoEdit(\'' + empId + '\',\'' + fecha + '\',\'' + t + '\')" style="width:44px;height:44px;font-size:14px;cursor:pointer">' + t + '</button>';
+  });
+  body += '</div>';
+  openModal('Editar turno — ' + (emp ? emp.nombre : '') + ' · ' + formatDateES(fecha), body);
 }
 
 async function guardarTurnoEdit(empId, fecha, nuevoTurno) {
   try {
-    // Buscar si ya existe un turno editado
-    const existentes = await sb.query('turnos', { select: '*', filter: { empleado_id: `eq.${empId}`, fecha: `eq.${fecha}` } });
-    const notas = document.getElementById('et-notas')?.value || '';
+    const existentes = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + fecha] });
     if (existentes && existentes.length > 0) {
-      await sb.update('turnos', existentes[0].id, { tipo: nuevoTurno, editado_manualmente: true, notas });
+      await sbUpdate('turnos', existentes[0].id, { tipo: nuevoTurno, editado_manualmente: true });
     } else {
-      await sb.insert('turnos', { empleado_id: empId, fecha, tipo: nuevoTurno, editado_manualmente: true, notas });
+      await sbInsert('turnos', { empleado_id: empId, fecha: fecha, tipo: nuevoTurno, editado_manualmente: true });
     }
     closeModal();
-    showToast('Turno actualizado','success');
+    showToast('Turno actualizado', 'success');
     renderCalendario();
-  } catch(e) { showToast('Error al guardar turno','error'); }
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 // =====================================================================
-// NOTIFICACIONES
+// ACTIONS
+// =====================================================================
+async function toggleRonda(id, abierta) {
+  try { await sbUpdate('vacaciones_rondas', id, { abierta: !abierta }); showToast('Ronda ' + (abierta ? 'cerrada' : 'abierta'), 'success'); renderVacaciones(); }
+  catch (e) { showToast('Error', 'error'); }
+}
+async function aprobarSolicitud(id) {
+  try { await sbUpdate('vacaciones_solicitudes', id, { estado: 'aprobada' }); showToast('Aprobada', 'success'); renderVacaciones(); }
+  catch (e) { showToast('Error', 'error'); }
+}
+async function rechazarSolicitud(id) {
+  try { await sbUpdate('vacaciones_solicitudes', id, { estado: 'rechazada' }); showToast('Rechazada'); renderVacaciones(); }
+  catch (e) { showToast('Error', 'error'); }
+}
+
+// =====================================================================
+// NOTIFICATIONS
 // =====================================================================
 function updateNotifBadge() {
-  const unread = (state.notificaciones||[]).filter(n=>!n.leida).length;
+  const unread = state.notificaciones.filter(n => !n.leida).length;
   document.getElementById('notif-dot').style.display = unread > 0 ? 'block' : 'none';
 }
 
 function toggleNotifs() {
   const dd = document.getElementById('notif-dropdown');
-  const isOpen = dd.style.display !== 'none';
-  dd.style.display = isOpen ? 'none' : 'block';
-  if (!isOpen) renderNotifList();
-  
-  document.addEventListener('click', function closeNotif(e) {
-    if (!document.getElementById('notif-btn')?.contains(e.target)) {
-      dd.style.display = 'none';
-      document.removeEventListener('click', closeNotif);
+  dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+  if (dd.style.display === 'block') {
+    if (state.notificaciones.length === 0) {
+      document.getElementById('notif-list').innerHTML = '<div class="notif-empty">Sin notificaciones</div>';
+    } else {
+      document.getElementById('notif-list').innerHTML = state.notificaciones.slice(0, 8).map(n =>
+        '<div class="notif-item' + (n.leida ? '' : ' unread') + '"><div class="notif-text"><strong>' + n.titulo + '</strong><br>' + n.mensaje + '</div></div>'
+      ).join('');
     }
-  }, { once: false });
-}
-
-function renderNotifList() {
-  const list = document.getElementById('notif-list');
-  const notifs = state.notificaciones || [];
-  if (notifs.length === 0) {
-    list.innerHTML = '<div class="notif-empty">Sin notificaciones</div>';
-    return;
   }
-  list.innerHTML = notifs.slice(0,8).map(n => `
-    <div class="notif-item ${n.leida?'':'unread'}">
-      ${!n.leida?'<div class="notif-dot-blue"></div>':'<div style="width:8px"></div>'}
-      <div>
-        <div class="notif-text"><strong>${n.titulo}</strong><br>${n.mensaje}</div>
-        <div class="notif-time">${new Date(n.created_at).toLocaleDateString('es-ES')}</div>
-      </div>
-    </div>
-  `).join('');
 }
 
-async function markAllRead() {
-  try {
-    // Marcar todas como leídas
-    state.notificaciones = state.notificaciones.map(n=>({...n,leida:true}));
-    updateNotifBadge();
-    renderNotifList();
-    showToast('Notificaciones marcadas como leídas');
-  } catch(e) {}
+function markAllRead() {
+  state.notificaciones.forEach(n => n.leida = true);
+  updateNotifBadge();
+  toggleNotifs();
 }
-
-// =====================================================================
-// ACCIONES VARIAS
-// =====================================================================
-async function toggleRonda(rondaId, abierta) {
-  try {
-    await sb.update('vacaciones_rondas', rondaId, { abierta: !abierta });
-    showToast(`Ronda ${abierta?'cerrada':'abierta'}`,'success');
-    renderVacaciones();
-  } catch(e) { showToast('Error','error'); }
-}
-
-async function aprobarSolicitud(id) {
-  try {
-    await sb.update('vacaciones_solicitudes', id, { estado: 'aprobada', notas_gestor: 'Aprobada por gestor' });
-    showToast('Solicitud aprobada','success');
-    renderVacaciones();
-  } catch(e) { showToast('Error','error'); }
-}
-
-async function rechazarSolicitud(id) {
-  try {
-    await sb.update('vacaciones_solicitudes', id, { estado: 'rechazada', notas_gestor: 'Rechazada por gestor' });
-    showToast('Solicitud rechazada');
-    renderVacaciones();
-  } catch(e) { showToast('Error','error'); }
-}
-
-async function aprobarIntercambio(id) {
-  try {
-    await sb.update('intercambios', id, { estado: 'aprobado', confirmado_gestor: true });
-    showToast('Intercambio aprobado','success');
-    renderIntercambios();
-  } catch(e) { showToast('Error','error'); }
-}
-
-async function denegarIntercambio(id) {
-  try {
-    await sb.update('intercambios', id, { estado: 'denegado' });
-    showToast('Intercambio denegado');
-    renderIntercambios();
-  } catch(e) { showToast('Error','error'); }
-}
-
-async function enviarSolicitudVacaciones() {
-  const inicio = document.getElementById('sv-inicio').value;
-  const fin = document.getElementById('sv-fin').value;
-  if (!inicio||!fin) { showToast('Indica las fechas','error'); return; }
-  const dias = Math.round((new Date(fin)-new Date(inicio))/(1000*60*60*24))+1;
-  try {
-    await sb.insert('vacaciones_solicitudes', {
-      empleado_id: state.user.id,
-      ronda_id: null,
-      fecha_inicio: inicio,
-      fecha_fin: fin,
-      dias_solicitados: dias,
-      notas_empleado: document.getElementById('sv-notas').value,
-    });
-    closeModal();
-    showToast('Solicitud enviada','success');
-  } catch(e) { showToast('Error al enviar solicitud','error'); }
-}
-
-async function enviarSolicitudIntercambio() {
-  const miFecha = document.getElementById('si-mifecha').value;
-  const suFecha = document.getElementById('si-sufecha').value;
-  const receptor = document.getElementById('si-receptor').value;
-  if (!miFecha||!suFecha||!receptor) { showToast('Rellena todos los campos','error'); return; }
-  try {
-    await sb.insert('intercambios', {
-      solicitante_id: state.user.id,
-      receptor_id: receptor,
-      fecha_solicitante: miFecha,
-      fecha_receptor: suFecha,
-      notas: document.getElementById('si-notas').value,
-    });
-    closeModal();
-    showToast('Intercambio propuesto','success');
-  } catch(e) { showToast('Error al proponer intercambio','error'); }
-}
-
-function guardarCiclos() { showToast('Ciclos guardados','success'); }
-function exportTurnos() { showToast('Generando informe de turnos...'); }
-function exportHoras() { showToast('Generando informe de horas...'); }
-function exportVacaciones() { showToast('Generando informe de vacaciones...'); }
-function exportAusencias() { showToast('Generando informe de ausencias...'); }
-function exportMiCalendarioPDF() { window.print(); }
-function verSolicitudesRonda(id,nombre) { showToast(`Solicitudes de ${nombre}`); }
-function modalEditarEmpleado(id) { showToast('Editor de empleado próximamente'); }
-function verPerfilEmpleado(id) { showToast('Perfil de empleado próximamente'); }
-function modalNuevaArea() { showToast('Añadir área próximamente'); }
-function modalEditarArea(id) { showToast('Editar área próximamente'); }
-function eliminarFestivo(id) { if(confirm('¿Eliminar este festivo?')) showToast('Festivo eliminado'); }
 
 // =====================================================================
 // SIDEBAR MOBILE
@@ -2693,28 +2112,7 @@ function closeSidebar() {
   document.getElementById('mobile-overlay').classList.remove('show');
 }
 
-// =====================================================================
-// UTILS
-// =====================================================================
-function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-function formatDateES(dateStr) {
-  if (!dateStr) return '—';
-  const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-function showToast(msg, type='') {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = `toast show ${type}`;
-  setTimeout(() => t.classList.remove('show'), 3000);
-}
-
-// Close notif dropdown on outside click
+// Close notification dropdown on outside click
 document.addEventListener('click', e => {
   const dd = document.getElementById('notif-dropdown');
   const btn = document.getElementById('notif-btn');
