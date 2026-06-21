@@ -35,6 +35,10 @@
   --turno-V-text: #9D174D;
   --turno-B: #FEE2E2;
   --turno-B-text: #991B1B;
+  --turno-S: #FFF7ED;
+  --turno-S-text: #C2410C;
+  --turno-L: #1E1B4B;
+  --turno-L-text: #A5B4FC;
   --sidebar-w: 240px;
   --header-h: 60px;
   --radius: 10px;
@@ -328,6 +332,8 @@ a { color: inherit; text-decoration: none; }
 .turno-badge.R { background: var(--turno-R); color: var(--turno-R-text); }
 .turno-badge.V { background: var(--turno-V); color: var(--turno-V-text); }
 .turno-badge.B { background: var(--turno-B); color: var(--turno-B-text); }
+.turno-badge.S { background: var(--turno-S); color: var(--turno-S-text); }
+.turno-badge.L { background: var(--turno-L); color: var(--turno-L-text); }
 
 .letra-badge {
   display: inline-flex;
@@ -437,6 +443,8 @@ a { color: inherit; text-decoration: none; }
 .turno-cell.R { background: var(--turno-R); color: var(--turno-R-text); }
 .turno-cell.V { background: var(--turno-V); color: var(--turno-V-text); }
 .turno-cell.B { background: var(--turno-B); color: var(--turno-B-text); }
+.turno-cell.S { background: var(--turno-S); color: var(--turno-S-text); }
+.turno-cell.L { background: var(--turno-L); color: var(--turno-L-text); }
 .turno-cell.empty { background: transparent; color: var(--text3); font-size: 10px; }
 
 .day-header.descubierto { background: #FEE2E2 !important; }
@@ -1381,7 +1389,7 @@ function getLetra(id) { return state.letras.find(l => l.id === id); }
 function getArea(id) { return state.areas.find(a => a.id === id); }
 
 function turnoLabel(t) {
-  return { M: 'Mañana', T: 'Tarde', N: 'Noche', D: 'Descanso', R: 'Refuerzo', V: 'Vacaciones', B: 'Baja', L: 'Licencia' }[t] || '';
+  return { M: 'Mañana', T: 'Tarde', N: 'Noche', D: 'Descanso', R: 'Refuerzo', V: 'Vacaciones', B: 'Baja', L: 'Luna (18-6h)', S: 'Sol (6-18h)' }[t] || '';
 }
 
 function showToast(msg, type) {
@@ -1400,7 +1408,7 @@ function renderDashboard() {
 
   // Calcular turnos de todos
   const empTurnos = state.empleados.map(e => ({ emp: e, turno: calcTurno(e, hoy) }));
-  const trabajando = empTurnos.filter(et => ['M','T','N','R'].includes(et.turno));
+  const trabajando = empTurnos.filter(et => ['M','T','N','R','S','L'].includes(et.turno));
   const enBaja = empTurnos.filter(et => et.turno === 'B' || et.turno === 'V' || et.turno === 'L');
   const manana = empTurnos.filter(et => et.turno === 'M');
   const tarde = empTurnos.filter(et => et.turno === 'T');
@@ -1560,14 +1568,33 @@ function renderCalendario() {
   // Precalcular cobertura: para cada día, verificar si M/T/N cubren todas las áreas
   const diasDescubiertos = {};
   dias.forEach(d => {
-    const todosEmps = state.empleados; // todos, no solo los filtrados
+    const todosEmps = state.empleados;
     let descubierto = false;
-    ['M', 'T', 'N'].forEach(turnoTipo => {
-      const enTurno = todosEmps.filter(e => calcTurno(e, d.ds) === turnoTipo);
-      if (enTurno.length === 0) return; // nadie en ese turno = puede ser normal (descanso general)
-      const areasCubiertas = new Set(enTurno.map(e => e.area_principal_id));
-      state.areas.forEach(area => {
-        if (!areasCubiertas.has(area.id)) descubierto = true;
+
+    // Obtener todos los turnos del día por área
+    state.areas.forEach(area => {
+      const empsArea = todosEmps.filter(e => e.area_principal_id === area.id);
+      const turnosArea = empsArea.map(e => calcTurno(e, d.ds)).filter(t => t);
+
+      // Si hay S + L en esta área, las 24h están cubiertas → OK
+      const tieneSol = turnosArea.includes('S');
+      const tieneLuna = turnosArea.includes('L');
+      if (tieneSol && tieneLuna) return; // cubierto con 12h
+
+      // Check normal: M, T, N deben estar cubiertos
+      ['M', 'T', 'N'].forEach(turnoTipo => {
+        const enTurnoGlobal = todosEmps.filter(e => calcTurno(e, d.ds) === turnoTipo);
+        if (enTurnoGlobal.length === 0) return; // nadie en ese turno globalmente
+
+        // Para M: cubierto si alguien tiene M o S en esta área
+        // Para T: cubierto si alguien tiene T, S o L en esta área
+        // Para N: cubierto si alguien tiene N o L en esta área
+        var cubierto = false;
+        if (turnoTipo === 'M') cubierto = turnosArea.includes('M') || tieneSol;
+        else if (turnoTipo === 'T') cubierto = turnosArea.includes('T') || tieneSol || tieneLuna;
+        else if (turnoTipo === 'N') cubierto = turnosArea.includes('N') || tieneLuna;
+
+        if (!cubierto) descubierto = true;
       });
     });
     diasDescubiertos[d.ds] = descubierto;
@@ -1667,7 +1694,7 @@ function renderCalendario() {
 
   html += '</tbody></table></div>';
   html += '<div class="legend-row">';
-  [['M','Mañana'],['T','Tarde'],['N','Noche'],['D','Descanso'],['R','Refuerzo'],['V','Vacaciones'],['B','Baja']].forEach(([k, v]) => {
+  [['M','Mañana'],['T','Tarde'],['N','Noche'],['D','Descanso'],['R','Refuerzo'],['V','Vacaciones'],['B','Baja'],['S','Sol 12h'],['L','Luna 12h']].forEach(([k, v]) => {
     html += '<div class="legend-item"><span class="turno-badge ' + k + '">' + k + '</span> ' + v + '</div>';
   });
   html += '<div class="legend-item"><div style="width:8px;height:8px;background:#EF4444;border-radius:50%"></div> Turno descubierto</div>';
@@ -1706,8 +1733,26 @@ function mostrarDescubierto(fechaStr) {
   ['M', 'T', 'N'].forEach(turnoTipo => {
     const enTurno = state.empleados.filter(e => calcTurno(e, fechaStr) === turnoTipo);
     if (enTurno.length === 0) return;
-    const areasCubiertas = new Set(enTurno.map(e => e.area_principal_id));
-    const areasFaltantes = state.areas.filter(a => !areasCubiertas.has(a.id));
+
+    // Check each area considering S/L coverage
+    var areasFaltantes = [];
+    var areasOk = [];
+    state.areas.forEach(a => {
+      const empsArea = state.empleados.filter(e => e.area_principal_id === a.id);
+      const turnosArea = empsArea.map(e => calcTurno(e, fechaStr));
+      const tieneSol = turnosArea.includes('S');
+      const tieneLuna = turnosArea.includes('L');
+
+      var cubierto = false;
+      if (tieneSol && tieneLuna) cubierto = true;
+      else if (turnoTipo === 'M') cubierto = turnosArea.includes('M') || tieneSol;
+      else if (turnoTipo === 'T') cubierto = turnosArea.includes('T') || tieneSol || tieneLuna;
+      else if (turnoTipo === 'N') cubierto = turnosArea.includes('N') || tieneLuna;
+
+      if (cubierto) areasOk.push(a);
+      else areasFaltantes.push(a);
+    });
+
     if (areasFaltantes.length === 0) {
       body += '<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">';
       body += '<span class="turno-badge ' + turnoTipo + '">' + turnoTipo + '</span>';
@@ -1727,6 +1772,23 @@ function mostrarDescubierto(fechaStr) {
       body += '</div>';
     }
   });
+
+  // Show S/L assignments for this day
+  var solLuna = state.empleados.filter(e => { var t = calcTurno(e, fechaStr); return t === 'S' || t === 'L'; });
+  if (solLuna.length > 0) {
+    body += '<div style="padding:8px 0;border-top:2px solid var(--border);margin-top:4px">';
+    body += '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">TURNOS 12 HORAS</div>';
+    solLuna.forEach(et => {
+      var t = calcTurno(et, fechaStr);
+      var a = getArea(et.area_principal_id);
+      body += '<div style="display:flex;align-items:center;gap:8px;padding:3px 0">';
+      body += '<span class="turno-badge ' + t + '">' + t + '</span>';
+      body += '<span style="font-size:12px">' + et.nombre + ' ' + et.apellidos + '</span>';
+      body += '<span style="font-size:11px;color:var(--text3)">' + (a ? a.nombre : '') + ' · ' + turnoLabel(t) + '</span></div>';
+    });
+    body += '</div>';
+  }
+
   if (!body) body = '<div class="empty-state"><p>No hay turnos activos este día</p></div>';
   openModal('Cobertura — ' + formatDateES(fechaStr), body);
 }
@@ -2709,10 +2771,10 @@ function modalNuevoIntercambio() {
   body += '</select></div>';
   body += '<div class="grid-2">';
   body += '<div class="form-group"><label class="form-label">Tu turno ese día</label><select class="form-input" id="ni-turno-sol">';
-  ['M','T','N','R'].forEach(function(t) { body += '<option value="' + t + '">' + t + ' — ' + turnoLabel(t) + '</option>'; });
+  ['M','T','N','R','S','L'].forEach(function(t) { body += '<option value="' + t + '">' + t + ' — ' + turnoLabel(t) + '</option>'; });
   body += '</select></div>';
   body += '<div class="form-group"><label class="form-label">Turno del compañero</label><select class="form-input" id="ni-turno-rec">';
-  ['M','T','N','R'].forEach(function(t) { body += '<option value="' + t + '">' + t + ' — ' + turnoLabel(t) + '</option>'; });
+  ['M','T','N','R','S','L'].forEach(function(t) { body += '<option value="' + t + '">' + t + ' — ' + turnoLabel(t) + '</option>'; });
   body += '</select></div></div>';
   body += '<div class="grid-2">';
   body += '<div class="form-group"><label class="form-label">Tú cubres área</label><select class="form-input" id="ni-area-sol">';
@@ -3050,7 +3112,7 @@ async function crearAusencia() {
       modo_12h: document.getElementById('na-cob').value === 'Modo 12 horas',
     });
     // Crear turnos B/L en el calendario
-    var turnoTipo = tipo.includes('Baja') || tipo.includes('Accidente') ? 'B' : 'L';
+    var turnoTipo = 'B'; // todas las ausencias usan B en calendario
     var d = new Date(inicio + 'T12:00:00');
     var finD = new Date(fin + 'T12:00:00');
     while (d <= finD) {
@@ -3099,7 +3161,7 @@ async function guardarAusenciaEdit(ausId, empId) {
       tipo: tipo, cobertura_tipo: document.getElementById('ea-cob').value,
       fecha_inicio: inicio, fecha_fin: fin, motivo: document.getElementById('ea-notas').value,
     });
-    var turnoTipo = tipo.includes('Baja') || tipo.includes('Accidente') ? 'B' : 'L';
+    var turnoTipo = 'B'; // todas las ausencias usan B en calendario
     var d = new Date(inicio + 'T12:00:00');
     var finD = new Date(fin + 'T12:00:00');
     while (d <= finD) {
@@ -3167,7 +3229,7 @@ function editarTurno(empId, fecha, turnoActual) {
   const emp = state.empleados.find(e => e.id === empId);
   let body = '<p style="margin-bottom:12px">Turno actual: <span class="turno-badge ' + turnoActual + '">' + turnoActual + '</span> ' + turnoLabel(turnoActual) + '</p>';
   body += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-  ['M','T','N','D','R','V','B'].forEach(t => {
+  ['M','T','N','D','R','V','B','S','L'].forEach(t => {
     body += '<button class="turno-cell ' + t + '" onclick="guardarTurnoEdit(\'' + empId + '\',\'' + fecha + '\',\'' + t + '\')" style="width:44px;height:44px;font-size:14px;cursor:pointer">' + t + '</button>';
   });
   body += '</div>';
