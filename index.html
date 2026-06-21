@@ -1017,6 +1017,7 @@ let state = {
   festivos: [],
   ciclosConfig: [],
   polivalencias: [],
+  turnosEditados: [],
   notificaciones: [],
   currentPage: 'dashboard',
   calMes: new Date().getMonth(),
@@ -1033,6 +1034,10 @@ let state = {
 const PATRON = ['M','M','T','T','N','N','D','D','D','D'];
 
 function calcTurno(empleado, fechaStr) {
+  // Primero buscar si hay un turno editado manualmente
+  const editado = state.turnosEditados.find(t => t.empleado_id === empleado.id && t.fecha === fechaStr);
+  if (editado) return editado.tipo;
+
   const d = new Date(fechaStr + 'T12:00:00');
   const letraId = empleado.letra_id;
   const ciclos = state.ciclosConfig
@@ -1188,6 +1193,10 @@ async function loadAllData() {
       sbQuery('polivalencias', {
         select: 'id,empleado_id,area_id'
       }),
+      sbQuery('turnos', {
+        select: '*',
+        filters: ['editado_manualmente=eq.true']
+      }),
     ]);
 
     state.empleados = results[0].status === 'fulfilled' ? results[0].value : [];
@@ -1196,6 +1205,7 @@ async function loadAllData() {
     state.festivos = results[3].status === 'fulfilled' ? results[3].value : [];
     state.ciclosConfig = results[4].status === 'fulfilled' ? results[4].value : [];
     state.polivalencias = results[5].status === 'fulfilled' ? results[5].value : [];
+    state.turnosEditados = results[6].status === 'fulfilled' ? results[6].value : [];
 
     console.log('Data loaded:', {
       empleados: state.empleados.length,
@@ -1484,7 +1494,11 @@ function renderCalendario() {
 
   const porLetra = {};
   state.letras.forEach(l => {
-    const le = emps.filter(e => e.letra_id === l.id);
+    const le = emps.filter(e => e.letra_id === l.id).sort((a, b) => {
+      const areaA = getArea(a.area_principal_id);
+      const areaB = getArea(b.area_principal_id);
+      return (areaA ? areaA.orden : 99) - (areaB ? areaB.orden : 99);
+    });
     if (le.length) porLetra[l.id] = { letra: l, emps: le };
   });
 
@@ -1573,13 +1587,18 @@ function renderEmpleados() {
 
 function renderEmpRows(emps) {
   const hoy = todayStr();
-  // Ordenar por letra
+  // Ordenar por letra, luego por area.orden
   const sorted = [...emps].sort((a, b) => {
     const la = getLetra(a.letra_id);
     const lb = getLetra(b.letra_id);
     const na = la ? la.nombre : 'Z';
     const nb = lb ? lb.nombre : 'Z';
     if (na !== nb) return na.localeCompare(nb);
+    const areaA = getArea(a.area_principal_id);
+    const areaB = getArea(b.area_principal_id);
+    const oa = areaA ? areaA.orden : 99;
+    const ob = areaB ? areaB.orden : 99;
+    if (oa !== ob) return oa - ob;
     return (a.nombre + a.apellidos).localeCompare(b.nombre + b.apellidos);
   });
 
@@ -1826,12 +1845,19 @@ function renderConfiguracion() {
   if (tab === 'areas') {
     html += '<div class="card"><div class="card-header"><span class="card-title">Áreas de trabajo</span>';
     html += '<button class="btn btn-sm btn-blue" onclick="modalNuevaArea()">+ Añadir área</button></div><div class="card-body">';
-    state.areas.forEach(a => {
+    html += '<div class="alert alert-info mb-4"><span>El orden aquí define el orden en Calendario y Empleados. Usa las flechas para reordenar.</span></div>';
+    const sortedAreas = [...state.areas].sort((a, b) => a.orden - b.orden);
+    sortedAreas.forEach((a, idx) => {
       html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">';
       html += '<div style="display:flex;align-items:center;gap:10px">';
+      html += '<span style="font-size:11px;color:var(--text3);min-width:20px">' + a.orden + '</span>';
       html += '<div style="width:12px;height:12px;border-radius:3px;background:' + a.color + '"></div>';
       html += '<span style="font-weight:600">' + a.nombre + '</span>';
       if (!a.permite_polivalencia) html += '<span style="font-size:10px;background:#FEE2E2;color:#991B1B;padding:2px 6px;border-radius:4px">Sin polivalencias</span>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:4px">';
+      if (idx > 0) html += '<button class="btn btn-sm btn-ghost" onclick="moverArea(\'' + a.id + '\',-1)" title="Subir">↑</button>';
+      if (idx < sortedAreas.length - 1) html += '<button class="btn btn-sm btn-ghost" onclick="moverArea(\'' + a.id + '\',1)" title="Bajar">↓</button>';
       html += '</div></div>';
     });
     html += '</div></div>';
@@ -2132,6 +2158,10 @@ async function guardarTurnoEdit(empId, fecha, nuevoTurno) {
     } else {
       await sbInsert('turnos', { empleado_id: empId, fecha: fecha, tipo: nuevoTurno, editado_manualmente: true });
     }
+    // Actualizar state local
+    const idx = state.turnosEditados.findIndex(t => t.empleado_id === empId && t.fecha === fecha);
+    if (idx >= 0) { state.turnosEditados[idx].tipo = nuevoTurno; }
+    else { state.turnosEditados.push({ empleado_id: empId, fecha: fecha, tipo: nuevoTurno, editado_manualmente: true }); }
     closeModal();
     showToast('Turno actualizado', 'success');
     renderCalendario();
@@ -2346,6 +2376,28 @@ async function crearArea() {
     closeModal();
     renderConfiguracion();
     showToast('Área creada', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
+// AREAS - REORDENAR
+// =====================================================================
+async function moverArea(areaId, direction) {
+  const sorted = [...state.areas].sort((a, b) => a.orden - b.orden);
+  const idx = sorted.findIndex(a => a.id === areaId);
+  const swapIdx = idx + direction;
+  if (swapIdx < 0 || swapIdx >= sorted.length) return;
+
+  const thisArea = sorted[idx];
+  const otherArea = sorted[swapIdx];
+  const tempOrden = thisArea.orden;
+
+  try {
+    await sbUpdate('areas', thisArea.id, { orden: otherArea.orden });
+    await sbUpdate('areas', otherArea.id, { orden: tempOrden });
+    state.areas = await sbQuery('areas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'orden.asc' });
+    renderConfiguracion();
+    showToast('Orden actualizado', 'success');
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
