@@ -1356,64 +1356,110 @@ function showToast(msg, type) {
 function renderDashboard() {
   const hoy = todayStr();
   const total = state.empleados.length;
-  const trabajando = state.empleados.filter(e => ['M','T','N','R'].includes(calcTurno(e, hoy)));
-  const manana = trabajando.filter(e => calcTurno(e, hoy) === 'M');
-  const tarde = trabajando.filter(e => calcTurno(e, hoy) === 'T');
-  const noche = trabajando.filter(e => calcTurno(e, hoy) === 'N');
 
+  // Calcular turnos de todos
+  const empTurnos = state.empleados.map(e => ({ emp: e, turno: calcTurno(e, hoy) }));
+  const trabajando = empTurnos.filter(et => ['M','T','N','R'].includes(et.turno));
+  const enBaja = empTurnos.filter(et => et.turno === 'B' || et.turno === 'V' || et.turno === 'L');
+  const manana = empTurnos.filter(et => et.turno === 'M');
+  const tarde = empTurnos.filter(et => et.turno === 'T');
+  const noche = empTurnos.filter(et => et.turno === 'N');
+  const refuerzo = empTurnos.filter(et => et.turno === 'R');
+
+  // Stats
   let html = '<div class="stats-grid">';
-  html += statCard('Empleados activos', total, state.letras.length + ' letras · ' + state.areas.length + ' áreas', '#DBEAFE', '#2563EB');
-  html += statCard('Turno Mañana', manana.length, '06:00 – 14:00', '#DBEAFE', '#1D4ED8');
-  html += statCard('Turno Tarde', tarde.length, '14:00 – 22:00', '#FEF3C7', '#D97706');
-  html += statCard('Turno Noche', noche.length, '22:00 – 06:00', '#EDE9FE', '#7C3AED');
+  html += statCard('Empleados', total, trabajando.length + ' trabajando hoy' + (enBaja.length > 0 ? ' · ' + enBaja.length + ' baja/ausencia' : ''), '#DBEAFE', '#2563EB');
+  html += statCard('Mañana', manana.length, '06:00 – 14:00', '#DBEAFE', '#1D4ED8');
+  html += statCard('Tarde', tarde.length, '14:00 – 22:00', '#FEF3C7', '#D97706');
+  html += statCard('Noche', noche.length, '22:00 – 06:00', '#EDE9FE', '#7C3AED');
   html += '</div>';
 
-  html += '<div class="dashboard-grid">';
-  // Tabla hoy
-  html += '<div class="card"><div class="card-header"><span class="card-title">Turnos de hoy — ' + formatDateES(hoy) + '</span>';
-  html += '<button class="btn btn-sm btn-outline" onclick="navigateTo(\'calendario\')">Ver calendario</button></div>';
-  html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr><th>Empleado</th><th>Letra</th><th>Área</th><th>Turno</th></tr></thead><tbody>';
-  trabajando.slice(0, 14).forEach(e => {
-    const t = calcTurno(e, hoy);
-    const l = getLetra(e.letra_id);
-    const a = getArea(e.area_principal_id);
-    html += '<tr><td><div style="display:flex;align-items:center;gap:8px">';
-    html += '<div class="emp-avatar" style="background:' + (l ? l.color : '#64748B') + '">' + (e.nombre[0] || '') + (e.apellidos[0] || '') + '</div>';
-    html += '<div><div style="font-size:12px;font-weight:600">' + e.nombre + ' ' + e.apellidos + '</div>';
-    html += '<div style="font-size:10px;color:var(--text3)">' + e.username + '</div></div></div></td>';
-    html += '<td><span class="letra-badge" style="background:' + (l ? l.color + '22' : '#eee') + ';color:' + (l ? l.color : '#999') + '">' + (l ? l.nombre : '?') + '</span></td>';
-    html += '<td style="font-size:12px">' + (a ? a.nombre : '—') + '</td>';
-    html += '<td><span class="turno-badge ' + t + '">' + t + '</span></td></tr>';
-  });
-  html += '</tbody></table></div></div>';
+  // Empleados de baja
+  if (enBaja.length > 0) {
+    html += '<div class="alert alert-warning" style="margin-bottom:16px"><span><strong>' + enBaja.length + ' empleado' + (enBaja.length > 1 ? 's' : '') + ' ausente' + (enBaja.length > 1 ? 's' : '') + ':</strong> ';
+    html += enBaja.map(et => et.emp.nombre + ' ' + et.emp.apellidos + ' <span class="turno-badge ' + et.turno + '" style="font-size:10px;width:18px;height:18px">' + et.turno + '</span>').join(', ');
+    html += '</span></div>';
+  }
 
-  // Lado derecho
-  html += '<div style="display:flex;flex-direction:column;gap:16px">';
-  // Resumen por área
-  html += '<div class="card"><div class="card-header"><span class="card-title">Resumen por área hoy</span></div><div class="card-body" style="padding:12px 16px">';
-  state.areas.forEach(area => {
-    const count = trabajando.filter(e => e.area_principal_id === area.id).length;
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">';
-    html += '<div style="display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;border-radius:50%;background:' + area.color + '"></div>';
-    html += '<span style="font-size:13px">' + area.nombre + '</span></div>';
-    html += '<span style="font-size:13px;font-weight:600;color:' + (count > 0 ? 'var(--success)' : 'var(--danger)') + '">' + count + '</span></div>';
+  html += '<div class="dashboard-grid">';
+
+  // === TABLA DE TURNOS HOY agrupada por turno y área ===
+  html += '<div class="card"><div class="card-header"><span class="card-title">Hoy — ' + formatDateES(hoy) + '</span>';
+  html += '<button class="btn btn-sm btn-outline" onclick="navigateTo(\'calendario\')">Ver calendario</button></div>';
+  html += '<div style="overflow-x:auto">';
+
+  // Por cada turno: M, T, N, R
+  [
+    { tipo: 'M', label: 'Mañana · 06:00–14:00', color: 'var(--turno-M)', textColor: 'var(--turno-M-text)', list: manana },
+    { tipo: 'T', label: 'Tarde · 14:00–22:00', color: 'var(--turno-T)', textColor: 'var(--turno-T-text)', list: tarde },
+    { tipo: 'N', label: 'Noche · 22:00–06:00', color: 'var(--turno-N)', textColor: 'var(--turno-N-text)', list: noche },
+    { tipo: 'R', label: 'Equipo de Refuerzo', color: 'var(--turno-R)', textColor: 'var(--turno-R-text)', list: refuerzo },
+  ].forEach(turno => {
+    if (turno.list.length === 0) return;
+    html += '<div style="padding:6px 16px;background:' + turno.color + ';display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">';
+    html += '<span style="font-size:12px;font-weight:700;color:' + turno.textColor + '">' + turno.label + '</span>';
+    html += '<span style="font-size:11px;font-weight:600;color:' + turno.textColor + '">' + turno.list.length + ' empleados</span></div>';
+
+    // Agrupar por área dentro de este turno
+    state.areas.forEach(area => {
+      const enArea = turno.list.filter(et => et.emp.area_principal_id === area.id);
+      if (enArea.length === 0) return;
+      enArea.forEach((et, idx) => {
+        const l = getLetra(et.emp.letra_id);
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid var(--border)">';
+        html += '<div class="emp-avatar" style="background:' + (l ? l.color : '#64748B') + ';width:28px;height:28px;font-size:10px">' + (et.emp.nombre[0] || '') + (et.emp.apellidos[0] || '') + '</div>';
+        html += '<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">' + et.emp.nombre + ' ' + et.emp.apellidos + '</div></div>';
+        html += '<span class="letra-badge" style="background:' + (l ? l.color + '22' : '#eee') + ';color:' + (l ? l.color : '#999') + '">' + (l ? l.nombre : '?') + '</span>';
+        html += '<span style="font-size:11px;color:var(--text2);min-width:70px;text-align:right">' + area.nombre + '</span>';
+        html += '</div>';
+      });
+    });
   });
+
   html += '</div></div>';
 
-  // Próximos 5 días
-  html += '<div class="card"><div class="card-header"><span class="card-title">Próximos 5 días</span></div><div class="card-body" style="padding:12px 16px">';
-  for (let i = 0; i < 5; i++) {
-    const d = new Date(); d.setDate(d.getDate() + i);
-    const ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    const activos = state.empleados.filter(e => ['M','T','N','R'].includes(calcTurno(e, ds))).length;
-    const festivo = state.festivos.find(f => f.fecha === ds);
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">';
-    html += '<div><span style="font-size:12px;font-weight:600">' + formatDateES(ds) + '</span>';
-    if (festivo) html += '<span style="font-size:10px;color:var(--danger);margin-left:6px"> ' + festivo.nombre + '</span>';
-    html += '</div><span style="font-size:12px;color:var(--text2)">' + activos + ' trabajando</span></div>';
-  }
-  html += '</div></div></div></div>';
+  // === RESUMEN POR ÁREA (lado derecho) ===
+  html += '<div style="display:flex;flex-direction:column;gap:16px">';
 
+  // Por cada turno, mostrar cobertura de áreas
+  [
+    { tipo: 'M', label: 'Mañana', list: manana, color: 'var(--turno-M-text)', bg: 'var(--turno-M)' },
+    { tipo: 'T', label: 'Tarde', list: tarde, color: 'var(--turno-T-text)', bg: 'var(--turno-T)' },
+    { tipo: 'N', label: 'Noche', list: noche, color: 'var(--turno-N-text)', bg: 'var(--turno-N)' },
+  ].forEach(turno => {
+    if (turno.list.length === 0) return;
+    html += '<div class="card"><div class="card-header" style="background:' + turno.bg + '">';
+    html += '<span class="card-title" style="color:' + turno.color + '">Áreas — ' + turno.label + '</span>';
+    // Check if all areas covered
+    const allCovered = state.areas.every(a => turno.list.some(et => et.emp.area_principal_id === a.id));
+    if (allCovered) html += '<span style="font-size:11px;font-weight:700;color:#166534;background:#DCFCE7;padding:2px 8px;border-radius:10px">✓ OK</span>';
+    else html += '<span style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:2px 8px;border-radius:10px">⚠ Incompleto</span>';
+    html += '</div><div class="card-body" style="padding:8px 16px">';
+    state.areas.forEach(area => {
+      const count = turno.list.filter(et => et.emp.area_principal_id === area.id).length;
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)">';
+      html += '<div style="display:flex;align-items:center;gap:6px"><div style="width:6px;height:6px;border-radius:50%;background:' + area.color + '"></div>';
+      html += '<span style="font-size:12px">' + area.nombre + '</span></div>';
+      html += '<span style="font-size:12px;font-weight:700;color:' + (count > 0 ? 'var(--success)' : 'var(--danger)') + '">' + count + '</span></div>';
+    });
+    html += '</div></div>';
+  });
+
+  // Refuerzo resumen si hay
+  if (refuerzo.length > 0) {
+    html += '<div class="card"><div class="card-header" style="background:var(--turno-R)"><span class="card-title" style="color:var(--turno-R-text)">Refuerzo</span>';
+    html += '<span style="font-size:11px;font-weight:700;color:var(--turno-R-text)">' + refuerzo.length + ' empleados</span></div>';
+    html += '<div class="card-body" style="padding:8px 16px">';
+    refuerzo.forEach(et => {
+      const a = getArea(et.emp.area_principal_id);
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">';
+      html += '<span style="font-size:12px">' + et.emp.nombre + ' ' + et.emp.apellidos + '</span>';
+      html += '<span style="font-size:11px;color:var(--text2)">' + (a ? a.nombre : '') + '</span></div>';
+    });
+    html += '</div></div>';
+  }
+
+  html += '</div></div>';
   document.getElementById('page-dashboard').innerHTML = html;
 }
 
@@ -1527,27 +1573,48 @@ function renderEmpleados() {
 
 function renderEmpRows(emps) {
   const hoy = todayStr();
-  return emps.map(emp => {
+  // Ordenar por letra
+  const sorted = [...emps].sort((a, b) => {
+    const la = getLetra(a.letra_id);
+    const lb = getLetra(b.letra_id);
+    const na = la ? la.nombre : 'Z';
+    const nb = lb ? lb.nombre : 'Z';
+    if (na !== nb) return na.localeCompare(nb);
+    return (a.nombre + a.apellidos).localeCompare(b.nombre + b.apellidos);
+  });
+
+  let html = '';
+  let currentLetra = null;
+
+  sorted.forEach(emp => {
     const l = getLetra(emp.letra_id);
+    const letraNombre = l ? l.nombre : '?';
+
+    // Separador de letra
+    if (letraNombre !== currentLetra) {
+      currentLetra = letraNombre;
+      html += '<tr><td colspan="7" style="background:#F8FAFC;padding:6px 12px;font-size:11px;font-weight:700;color:' + (l ? l.color : '#999') + ';border-bottom:1px solid var(--border)">Letra ' + letraNombre + '</td></tr>';
+    }
+
     const a = getArea(emp.area_principal_id);
     const t = calcTurno(emp, hoy);
     const polivs = state.polivalencias.filter(p => p.empleado_id === emp.id).map(p => { const ar = getArea(p.area_id); return ar ? ar.nombre : ''; }).filter(Boolean);
 
-    let row = '<tr><td><div style="display:flex;align-items:center;gap:10px">';
-    row += '<div class="emp-avatar" style="background:' + (l ? l.color : '#64748B') + '">' + (emp.nombre[0] || '') + (emp.apellidos[0] || '') + '</div>';
-    row += '<div><div style="font-weight:600;font-size:13px">' + emp.nombre + ' ' + emp.apellidos + '</div>';
-    row += '<div style="font-size:11px;color:var(--text3)">' + emp.username + '</div></div></div></td>';
-    row += '<td><span class="letra-badge" style="background:' + (l ? l.color + '22' : '#eee') + ';color:' + (l ? l.color : '#999') + '">' + (l ? l.nombre : '?') + '</span></td>';
-    row += '<td style="font-size:13px">' + (a ? a.nombre : '—') + '</td>';
-    row += '<td><div class="poliv-tags">';
-    if (polivs.length) { polivs.forEach(p => { row += '<span class="poliv-tag">' + p + '</span>'; }); }
-    else { row += '<span style="font-size:11px;color:var(--text3)">—</span>'; }
-    row += '</div></td>';
-    row += '<td><code style="font-size:12px;background:var(--bg);padding:2px 6px;border-radius:4px">' + emp.username + '</code></td>';
-    row += '<td><span class="turno-badge ' + (t || 'D') + '">' + (t || 'D') + '</span></td>';
-    row += '<td><button class="btn btn-sm btn-ghost" onclick="modalEditarEmpleado(\'' + emp.id + '\')">Editar</button></td></tr>';
-    return row;
-  }).join('');
+    html += '<tr><td><div style="display:flex;align-items:center;gap:10px">';
+    html += '<div class="emp-avatar" style="background:' + (l ? l.color : '#64748B') + '">' + (emp.nombre[0] || '') + (emp.apellidos[0] || '') + '</div>';
+    html += '<div><div style="font-weight:600;font-size:13px">' + emp.nombre + ' ' + emp.apellidos + '</div>';
+    html += '<div style="font-size:11px;color:var(--text3)">' + emp.username + '</div></div></div></td>';
+    html += '<td><span class="letra-badge" style="background:' + (l ? l.color + '22' : '#eee') + ';color:' + (l ? l.color : '#999') + '">' + letraNombre + '</span></td>';
+    html += '<td style="font-size:13px">' + (a ? a.nombre : '—') + '</td>';
+    html += '<td><div class="poliv-tags">';
+    if (polivs.length) { polivs.forEach(p => { html += '<span class="poliv-tag">' + p + '</span>'; }); }
+    else { html += '<span style="font-size:11px;color:var(--text3)">—</span>'; }
+    html += '</div></td>';
+    html += '<td><code style="font-size:12px;background:var(--bg);padding:2px 6px;border-radius:4px">' + emp.username + '</code></td>';
+    html += '<td><span class="turno-badge ' + (t || 'D') + '">' + (t || 'D') + '</span></td>';
+    html += '<td><button class="btn btn-sm btn-ghost" onclick="modalEditarEmpleado(\'' + emp.id + '\')">Editar</button></td></tr>';
+  });
+  return html;
 }
 
 function filtrarEmpleados(q) {
