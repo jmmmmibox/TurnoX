@@ -439,6 +439,16 @@ a { color: inherit; text-decoration: none; }
 .turno-cell.B { background: var(--turno-B); color: var(--turno-B-text); }
 .turno-cell.empty { background: transparent; color: var(--text3); font-size: 10px; }
 
+.day-header.descubierto { background: #FEE2E2 !important; }
+.day-header.descubierto .day-alert {
+  width: 7px; height: 7px;
+  background: #EF4444;
+  border-radius: 50%;
+  display: inline-block;
+  margin-top: 2px;
+}
+td.col-descubierto { background: #FEF2F2 !important; }
+
 .legend-row {
   display: flex;
   gap: 12px;
@@ -1531,11 +1541,42 @@ function renderCalendario() {
   html += '<button class="btn btn-outline btn-sm" onclick="state.calFiltroLetra=\'\';state.calFiltroArea=\'\';renderCalendario()">Limpiar</button>';
   html += '</div></div>';
 
-  html += '<div class="card"><div class="cal-table-wrap"><table class="cal-table"><thead><tr>';
+  // Precalcular cobertura: para cada día, verificar si M/T/N cubren todas las áreas
+  const diasDescubiertos = {};
+  dias.forEach(d => {
+    const todosEmps = state.empleados; // todos, no solo los filtrados
+    let descubierto = false;
+    ['M', 'T', 'N'].forEach(turnoTipo => {
+      const enTurno = todosEmps.filter(e => calcTurno(e, d.ds) === turnoTipo);
+      if (enTurno.length === 0) return; // nadie en ese turno = puede ser normal (descanso general)
+      const areasCubiertas = new Set(enTurno.map(e => e.area_principal_id));
+      state.areas.forEach(area => {
+        if (!areasCubiertas.has(area.id)) descubierto = true;
+      });
+    });
+    diasDescubiertos[d.ds] = descubierto;
+  });
+
+  const totalDescubiertos = Object.values(diasDescubiertos).filter(v => v).length;
+
+  html += '<div class="card">';
+
+  // Alerta resumen si hay días descubiertos
+  if (totalDescubiertos > 0) {
+    html += '<div style="padding:10px 16px;background:#FEF2F2;border-bottom:1px solid #FECACA;display:flex;align-items:center;gap:8px">';
+    html += '<div style="width:8px;height:8px;background:#EF4444;border-radius:50%;flex-shrink:0"></div>';
+    html += '<span style="font-size:12px;color:#991B1B;font-weight:600">⚠ ' + totalDescubiertos + ' día' + (totalDescubiertos > 1 ? 's' : '') + ' con turnos descubiertos en ' + nombresMes[mes] + '</span>';
+    html += '</div>';
+  }
+
+  html += '<div class="cal-table-wrap"><table class="cal-table"><thead><tr>';
   html += '<th style="text-align:left;padding:8px 12px;min-width:170px;position:sticky;left:0;background:white;z-index:10">Empleado</th>';
   dias.forEach(d => {
-    html += '<th class="day-header' + (d.isWeekend ? ' weekend' : '') + (d.isFestivo ? ' festivo' : '') + '">';
-    html += '<div>' + d.dayName + '</div><div>' + d.num + '</div></th>';
+    const desc = diasDescubiertos[d.ds];
+    html += '<th class="day-header' + (d.isWeekend ? ' weekend' : '') + (d.isFestivo ? ' festivo' : '') + (desc ? ' descubierto' : '') + '"' + (desc ? ' onclick="mostrarDescubierto(\'' + d.ds + '\')" style="cursor:pointer"' : '') + '>';
+    html += '<div>' + d.dayName + '</div><div>' + d.num + '</div>';
+    if (desc) html += '<div class="day-alert"></div>';
+    html += '</th>';
   });
   html += '</tr></thead><tbody>';
 
@@ -1547,7 +1588,11 @@ function renderCalendario() {
       dias.forEach(d => {
         const t = calcTurno(emp, d.ds);
         const isToday = d.ds === todayStr();
-        html += '<td style="' + (isToday ? 'background:#EFF6FF' : '') + '"' + (state.user.tipo === 'gestor' ? ' onclick="editarTurno(\'' + emp.id + '\',\'' + d.ds + '\',\'' + t + '\')"' : '') + '>';
+        const desc = diasDescubiertos[d.ds];
+        let tdStyle = '';
+        if (isToday) tdStyle = 'background:#EFF6FF;';
+        else if (desc) tdStyle = 'background:#FEF8F8;';
+        html += '<td style="' + tdStyle + '"' + (state.user.tipo === 'gestor' ? ' onclick="editarTurno(\'' + emp.id + '\',\'' + d.ds + '\',\'' + t + '\')"' : '') + '>';
         html += '<span class="turno-cell ' + (t || 'empty') + '">' + (t || '·') + '</span></td>';
       });
       html += '</tr>';
@@ -1559,6 +1604,7 @@ function renderCalendario() {
   [['M','Mañana'],['T','Tarde'],['N','Noche'],['D','Descanso'],['R','Refuerzo'],['V','Vacaciones'],['B','Baja']].forEach(([k, v]) => {
     html += '<div class="legend-item"><span class="turno-badge ' + k + '">' + k + '</span> ' + v + '</div>';
   });
+  html += '<div class="legend-item"><div style="width:8px;height:8px;background:#EF4444;border-radius:50%"></div> Turno descubierto</div>';
   html += '</div></div>';
 
   document.getElementById('page-calendario').innerHTML = html;
@@ -1566,6 +1612,36 @@ function renderCalendario() {
 
 function calPrev() { state.calMes--; if (state.calMes < 0) { state.calMes = 11; state.calYear--; } renderCalendario(); }
 function calNext() { state.calMes++; if (state.calMes > 11) { state.calMes = 0; state.calYear++; } renderCalendario(); }
+
+function mostrarDescubierto(fechaStr) {
+  let body = '';
+  ['M', 'T', 'N'].forEach(turnoTipo => {
+    const enTurno = state.empleados.filter(e => calcTurno(e, fechaStr) === turnoTipo);
+    if (enTurno.length === 0) return;
+    const areasCubiertas = new Set(enTurno.map(e => e.area_principal_id));
+    const areasFaltantes = state.areas.filter(a => !areasCubiertas.has(a.id));
+    if (areasFaltantes.length === 0) {
+      body += '<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">';
+      body += '<span class="turno-badge ' + turnoTipo + '">' + turnoTipo + '</span>';
+      body += '<span style="font-size:13px">' + turnoLabel(turnoTipo) + '</span>';
+      body += '<span style="margin-left:auto;font-size:11px;font-weight:700;color:#166534;background:#DCFCE7;padding:2px 8px;border-radius:10px">✓ Completo</span></div>';
+    } else {
+      body += '<div style="padding:8px 0;border-bottom:1px solid var(--border)">';
+      body += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+      body += '<span class="turno-badge ' + turnoTipo + '">' + turnoTipo + '</span>';
+      body += '<span style="font-size:13px">' + turnoLabel(turnoTipo) + '</span>';
+      body += '<span style="margin-left:auto;font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:2px 8px;border-radius:10px">⚠ ' + areasFaltantes.length + ' sin cubrir</span></div>';
+      areasFaltantes.forEach(a => {
+        body += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0 3px 32px">';
+        body += '<div style="width:6px;height:6px;border-radius:50%;background:' + a.color + '"></div>';
+        body += '<span style="font-size:12px;color:var(--danger);font-weight:600">' + a.nombre + '</span></div>';
+      });
+      body += '</div>';
+    }
+  });
+  if (!body) body = '<div class="empty-state"><p>No hay turnos activos este día</p></div>';
+  openModal('Cobertura — ' + formatDateES(fechaStr), body);
+}
 
 // =====================================================================
 // EMPLEADOS
