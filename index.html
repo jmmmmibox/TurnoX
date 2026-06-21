@@ -815,6 +815,21 @@ td.col-descubierto { background: #FEF2F2 !important; }
 .toast.show { transform: translateY(0); opacity: 1; }
 .toast.success { background: var(--success); }
 .toast.error { background: var(--danger); }
+
+.pass-wrap { position: relative; }
+.pass-wrap input { padding-right: 36px; }
+.pass-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text3);
+  cursor: pointer;
+  padding: 4px;
+}
+.pass-toggle:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -842,7 +857,10 @@ td.col-descubierto { background: #FEF2F2 !important; }
       </div>
       <div class="form-group">
         <label class="form-label">Contraseña</label>
-        <input type="password" class="form-input" id="g-pass" placeholder="••••••••" >
+        <div class="pass-wrap">
+          <input type="password" class="form-input" id="g-pass" placeholder="••••••••" >
+          <button type="button" class="pass-toggle" onclick="togglePass('g-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
       </div>
       <button class="btn-primary" onclick="loginGestor()">Acceder como Gestor</button>
     </div>
@@ -853,7 +871,10 @@ td.col-descubierto { background: #FEF2F2 !important; }
       </div>
       <div class="form-group">
         <label class="form-label">Contraseña</label>
-        <input type="password" class="form-input" id="e-pass" placeholder="••••••••">
+        <div class="pass-wrap">
+          <input type="password" class="form-input" id="e-pass" placeholder="••••••••">
+          <button type="button" class="pass-toggle" onclick="togglePass('e-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
       </div>
       <button class="btn-primary" onclick="loginEmpleado()">Acceder</button>
     </div>
@@ -1886,8 +1907,9 @@ async function renderVacaciones() {
     html += '<td>';
     if (s.estado === 'pendiente') {
       html += '<button class="btn btn-sm btn-green" onclick="aprobarSolicitud(\'' + s.id + '\')">✓</button> ';
-      html += '<button class="btn btn-sm btn-red" onclick="rechazarSolicitud(\'' + s.id + '\')">✕</button>';
+      html += '<button class="btn btn-sm btn-red" onclick="rechazarSolicitud(\'' + s.id + '\')">✕</button> ';
     }
+    html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarSolicitud(\'' + s.id + '\')">✎</button>';
     html += '</td></tr>';
   });
   html += '</tbody></table></div></div>';
@@ -2433,26 +2455,45 @@ async function renderMisSolicitudes() {
       vcDias.forEach(function(d) {
         var t = calcTurno(empA, d.ds);
         var tdStyle = '';
-        if (esYo && d.ds === todayStr()) tdStyle = 'background:#DBEAFE;';
-        else if (!esYo && t === 'V') tdStyle = 'background:#FCE7F3;';
-        else if (!esYo && diasBloqueados[d.ds] === 'buffer') tdStyle = 'background:#FFFBEB;';
-        html += '<td style=\"' + tdStyle + '\"><span class=\"turno-cell ' + (t || 'empty') + '\">' + (t || '·') + '</span></td>';
+        var isSelected = esYo && state.vacDiasSeleccionados && state.vacDiasSeleccionados.includes(d.ds);
+        var isBloqueado = diasBloqueados[d.ds] === 'ocupado' || (!esYo && t === 'V');
+        var isBuffer = !esYo && diasBloqueados[d.ds] === 'buffer';
+        if (isSelected) tdStyle = 'background:#DCFCE7;border:2px solid #16A34A;';
+        else if (esYo && d.ds === todayStr()) tdStyle = 'background:#DBEAFE;';
+        else if (isBloqueado) tdStyle = 'background:#FCE7F3;';
+        else if (isBuffer) tdStyle = 'background:#FFFBEB;';
+        var clickable = esYo && !miSolicitudActual && !isBloqueado && !isBuffer;
+        html += '<td style="' + tdStyle + (clickable ? 'cursor:pointer;' : '') + '"' + (clickable ? ' onclick="toggleVacDia(\'' + d.ds + '\')"' : '') + '><span class="turno-cell ' + (isSelected ? 'V' : (t || 'empty')) + '">' + (isSelected ? 'V' : (t || '\xb7')) + '</span></td>';
       });
       html += '</tr>';
     });
 
     html += '</tbody></table></div>';
 
-    // Formulario de solicitud debajo del calendario
+    // Panel de seleccion
     if (!miSolicitudActual) {
-      html += '<div style=\"margin-top:16px;padding:16px;background:var(--bg);border-radius:8px\">';
-      html += '<div style=\"font-size:13px;font-weight:600;margin-bottom:8px\">Solicitar ' + rondaActiva.dias + ' días ' + (rondaActiva.numero_ronda <= 2 ? 'consecutivos' : 'sueltos') + '</div>';
-      html += '<div class=\"grid-2\" style=\"margin-bottom:12px\">';
-      html += '<div class=\"form-group\"><label class=\"form-label\">Fecha inicio</label><input type=\"date\" class=\"form-input\" id=\"sv-inicio\"></div>';
-      html += '<div class=\"form-group\"><label class=\"form-label\">Fecha fin</label><input type=\"date\" class=\"form-input\" id=\"sv-fin\"></div></div>';
-      html += '<button class=\"btn btn-blue\" onclick=\"enviarSolicitudVacaciones(\'' + rondaActiva.id + '\',' + rondaActiva.dias + ',' + rondaActiva.numero_ronda + ')\">Solicitar vacaciones</button>';
+      var selDias = state.vacDiasSeleccionados || [];
+      html += '<div style="margin-top:16px;padding:16px;background:var(--bg);border-radius:8px">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      html += '<div style="font-size:13px;font-weight:600">Selecciona ' + rondaActiva.dias + ' dias ' + (rondaActiva.numero_ronda <= 2 ? 'consecutivos' : 'sueltos') + ' en tu fila</div>';
+      html += '<button class="btn btn-sm btn-ghost" onclick="state.vacDiasSeleccionados=[];renderMisSolicitudes()">Limpiar</button></div>';
+      if (selDias.length > 0) {
+        selDias.sort();
+        html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">';
+        selDias.forEach(function(ds) { html += '<span style="font-size:11px;background:#DCFCE7;color:#166534;padding:3px 8px;border-radius:4px;font-weight:600">' + formatDateES(ds) + '</span>'; });
+        html += '</div>';
+        html += '<div style="font-size:12px;color:var(--text2);margin-bottom:10px">' + selDias.length + ' de ' + rondaActiva.dias + ' dias seleccionados</div>';
+      } else {
+        html += '<div style="font-size:12px;color:var(--text3);margin-bottom:10px">Haz clic en los dias de tu fila (marcada con \u2192) para seleccionarlos</div>';
+      }
+      if (selDias.length === rondaActiva.dias) {
+        html += '<button class="btn btn-blue" onclick="enviarVacDesdeCalendario(\'' + rondaActiva.id + '\',' + rondaActiva.dias + ',' + rondaActiva.numero_ronda + ')">Confirmar solicitud</button>';
+      } else if (selDias.length > rondaActiva.dias) {
+        html += '<div class="alert alert-danger" style="margin:0"><span>Has seleccionado mas dias de los permitidos (' + rondaActiva.dias + ')</span></div>';
+      }
       html += '</div>';
     }
+
 
     // Mostrar vacaciones ya pedidas en esta área
     if (vacsMiArea.length > 0) {
@@ -2715,6 +2756,159 @@ async function rechazarIntercambioEmp(id) {
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
+function toggleVacDia(ds) {
+  if (!state.vacDiasSeleccionados) state.vacDiasSeleccionados = [];
+  var idx = state.vacDiasSeleccionados.indexOf(ds);
+  if (idx >= 0) { state.vacDiasSeleccionados.splice(idx, 1); }
+  else { state.vacDiasSeleccionados.push(ds); }
+  renderMisSolicitudes();
+}
+
+async function enviarVacDesdeCalendario(rondaId, diasRonda, numRonda) {
+  var selDias = (state.vacDiasSeleccionados || []).sort();
+  if (selDias.length !== diasRonda) { showToast('Selecciona exactamente ' + diasRonda + ' días', 'error'); return; }
+
+  // Validar consecutivos para rondas 1 y 2
+  if (numRonda <= 2) {
+    for (var i = 1; i < selDias.length; i++) {
+      var prev = new Date(selDias[i-1] + 'T12:00:00');
+      var curr = new Date(selDias[i] + 'T12:00:00');
+      var diff = Math.round((curr - prev) / 86400000);
+      if (diff !== 1) { showToast('Los días deben ser consecutivos para esta ronda', 'error'); return; }
+    }
+  }
+
+  var inicio = selDias[0];
+  var fin = selDias[selDias.length - 1];
+  var emp = state.user.empleadoData || state.empleados.find(function(e) { return e.id === state.user.id; });
+
+  // Validaciones: no coincidencia con misma área + buffer 2 días
+  var todasSols = [];
+  try { todasSols = await sbQuery('vacaciones_solicitudes', { select: '*', filters: ['ronda_id=eq.' + rondaId] }); } catch(e) {}
+
+  var conflicto = false;
+  todasSols.forEach(function(s) {
+    if (s.estado === 'rechazada' || s.empleado_id === emp.id) return;
+    var empS = state.empleados.find(function(e) { return e.id === s.empleado_id; });
+    if (!empS || empS.area_principal_id !== emp.area_principal_id) return;
+    var sInicio = new Date(s.fecha_inicio + 'T12:00:00');
+    var sFin = new Date(s.fecha_fin + 'T12:00:00');
+    sInicio.setDate(sInicio.getDate() - 2);
+    sFin.setDate(sFin.getDate() + 2);
+    selDias.forEach(function(ds) {
+      var dd = new Date(ds + 'T12:00:00');
+      if (dd >= sInicio && dd <= sFin) conflicto = true;
+    });
+  });
+  if (conflicto) { showToast('Conflicto: otro empleado de tu área tiene vacaciones en esas fechas o dentro del margen de 2 días', 'error'); return; }
+
+  // Validar max 2 fds por mes y área
+  var fdsPorMes = {};
+  selDias.forEach(function(ds) {
+    var dd = new Date(ds + 'T12:00:00');
+    if (dd.getDay() === 0 || dd.getDay() === 6) {
+      var mk = dd.getFullYear() + '-' + String(dd.getMonth() + 1).padStart(2, '0');
+      if (!fdsPorMes[mk]) fdsPorMes[mk] = new Set();
+      fdsPorMes[mk].add(Math.ceil(dd.getDate() / 7));
+    }
+  });
+  var fdsError = false;
+  Object.keys(fdsPorMes).forEach(function(mk) {
+    var existentes = new Set();
+    todasSols.forEach(function(s) {
+      if (s.estado === 'rechazada') return;
+      var empS = state.empleados.find(function(e) { return e.id === s.empleado_id; });
+      if (!empS || empS.area_principal_id !== emp.area_principal_id) return;
+      var dd = new Date(s.fecha_inicio + 'T12:00:00');
+      var ff = new Date(s.fecha_fin + 'T12:00:00');
+      while (dd <= ff) {
+        var m2 = dd.getFullYear() + '-' + String(dd.getMonth() + 1).padStart(2, '0');
+        if (m2 === mk && (dd.getDay() === 0 || dd.getDay() === 6)) existentes.add(Math.ceil(dd.getDate() / 7));
+        dd.setDate(dd.getDate() + 1);
+      }
+    });
+    var total = new Set([...existentes, ...fdsPorMes[mk]]);
+    if (total.size > 2) fdsError = true;
+  });
+  if (fdsError) { showToast('Máximo 2 fines de semana por mes y área', 'error'); return; }
+
+  try {
+    await sbInsert('vacaciones_solicitudes', {
+      empleado_id: emp.id,
+      ronda_id: rondaId,
+      fecha_inicio: inicio,
+      fecha_fin: fin,
+      dias_solicitados: selDias.length,
+      estado: 'pendiente',
+    });
+    state.vacDiasSeleccionados = [];
+    showToast('Solicitud enviada', 'success');
+    renderMisSolicitudes();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// Gestor: editar solicitud de vacaciones
+function modalEditarSolicitud(solId) {
+  sbQuery('vacaciones_solicitudes', { select: '*', filters: ['id=eq.' + solId] }).then(function(sols) {
+    if (!sols || sols.length === 0) return;
+    var s = sols[0];
+    var emp = state.empleados.find(function(e) { return e.id === s.empleado_id; });
+    var body = '<div style="margin-bottom:12px"><strong>' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</strong> · ' + s.dias_solicitados + ' días</div>';
+    body += '<div class="grid-2">';
+    body += '<div class="form-group"><label class="form-label">Fecha inicio</label><input type="date" class="form-input" id="es-inicio" value="' + s.fecha_inicio + '"></div>';
+    body += '<div class="form-group"><label class="form-label">Fecha fin</label><input type="date" class="form-input" id="es-fin" value="' + s.fecha_fin + '"></div></div>';
+    body += '<div class="form-group"><label class="form-label">Estado</label><select class="form-input" id="es-estado">';
+    ['pendiente','aprobada','rechazada'].forEach(function(e) { body += '<option value="' + e + '"' + (s.estado === e ? ' selected' : '') + '>' + e + '</option>'; });
+    body += '</select></div>';
+    body += '<div class="form-group"><label class="form-label">Notas gestor</label><textarea class="form-input" id="es-notas" rows="2">' + (s.notas_gestor || '') + '</textarea></div>';
+    openModal('Editar solicitud', body,
+      '<button class="btn btn-red" onclick="eliminarSolicitud(\'' + solId + '\')">Eliminar</button><div style="flex:1"></div>' +
+      '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+      '<button class="btn btn-blue" onclick="guardarSolicitudEdit(\'' + solId + '\',\'' + s.empleado_id + '\')">Guardar</button>');
+  });
+}
+
+async function guardarSolicitudEdit(solId, empId) {
+  var nuevoEstado = document.getElementById('es-estado').value;
+  var inicio = document.getElementById('es-inicio').value;
+  var fin = document.getElementById('es-fin').value;
+  var dias = Math.round((new Date(fin + 'T12:00:00') - new Date(inicio + 'T12:00:00')) / 86400000) + 1;
+  try {
+    await sbUpdate('vacaciones_solicitudes', solId, {
+      fecha_inicio: inicio, fecha_fin: fin, dias_solicitados: dias,
+      estado: nuevoEstado, notas_gestor: document.getElementById('es-notas').value
+    });
+    // Si se aprueba, crear turnos V
+    if (nuevoEstado === 'aprobada') {
+      var d = new Date(inicio + 'T12:00:00');
+      var finD = new Date(fin + 'T12:00:00');
+      while (d <= finD) {
+        var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        try {
+          var ex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + ds] });
+          if (ex && ex.length > 0) await sbUpdate('turnos', ex[0].id, { tipo: 'V', editado_manualmente: true });
+          else await sbInsert('turnos', { empleado_id: empId, fecha: ds, tipo: 'V', editado_manualmente: true });
+        } catch(e2) {}
+        d.setDate(d.getDate() + 1);
+      }
+      try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
+    }
+    closeModal();
+    showToast('Solicitud actualizada', 'success');
+    renderVacaciones();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function eliminarSolicitud(solId) {
+  if (!confirm('¿Eliminar esta solicitud? Si estaba aprobada, los turnos V del calendario no se eliminan automáticamente.')) return;
+  try {
+    await sbDelete('vacaciones_solicitudes', solId);
+    closeModal();
+    showToast('Solicitud eliminada', 'success');
+    renderVacaciones();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
 
 // =====================================================================
 // MODALS
@@ -2745,7 +2939,7 @@ function modalNuevoEmpleado() {
   body += '<div class="form-group"><label class="form-label">Apellidos</label><input class="form-input" id="ne-apellidos"></div></div>';
   body += '<div class="grid-2">';
   body += '<div class="form-group"><label class="form-label">Usuario</label><input class="form-input" id="ne-user" placeholder="p.ejemplo"></div>';
-  body += '<div class="form-group"><label class="form-label">Contraseña</label><input class="form-input" id="ne-pass" value="Turnox2026"></div></div>';
+  body += '<div class="form-group"><label class="form-label">Contraseña</label><div class="pass-wrap"><input type="password" class="form-input" id="ne-pass" value="Turnox2026"><button type="button" class="pass-toggle" onclick="togglePass(\'ne-pass\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div></div>';
   body += '<div class="grid-2">';
   body += '<div class="form-group"><label class="form-label">Letra</label><select class="form-input" id="ne-letra">';
   state.letras.forEach(l => { body += '<option value="' + l.id + '">Letra ' + l.nombre + '</option>'; });
@@ -2876,7 +3070,7 @@ function modalEditarEmpleado(empId) {
   body += '<div class="form-group"><label class="form-label">Apellidos</label><input class="form-input" id="ee-apellidos" value="' + emp.apellidos + '"></div></div>';
   body += '<div class="grid-2">';
   body += '<div class="form-group"><label class="form-label">Usuario</label><input class="form-input" id="ee-user" value="' + emp.username + '"></div>';
-  body += '<div class="form-group"><label class="form-label">Contraseña</label><input class="form-input" id="ee-pass" placeholder="Dejar vacío para no cambiar"></div></div>';
+  body += '<div class="form-group"><label class="form-label">Contraseña</label><div class="pass-wrap"><input type="password" class="form-input" id="ee-pass" placeholder="Dejar vacío para no cambiar"><button type="button" class="pass-toggle" onclick="togglePass(\'ee-pass\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div></div>';
   body += '<div class="grid-2">';
   body += '<div class="form-group"><label class="form-label">Letra</label><select class="form-input" id="ee-letra">';
   state.letras.forEach(l => { body += '<option value="' + l.id + '"' + (emp.letra_id === l.id ? ' selected' : '') + '>Letra ' + l.nombre + '</option>'; });
@@ -3177,6 +3371,17 @@ function markAllRead() {
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('mobile-overlay').classList.toggle('show');
+}
+
+function togglePass(inputId, btn) {
+  var inp = document.getElementById(inputId);
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+  } else {
+    inp.type = 'password';
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  }
 }
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
