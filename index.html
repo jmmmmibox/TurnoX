@@ -878,9 +878,9 @@ td.col-descubierto { background: #FEF2F2 !important; }
         <input type="text" class="form-input" id="e-user" placeholder="c.moreno">
       </div>
       <div class="form-group">
-        <label class="form-label">Contraseña</label>
+        <label class="form-label">Contraseña <span style="font-weight:400;color:var(--text3)">(vacía si es tu primer acceso)</span></label>
         <div class="pass-wrap">
-          <input type="password" class="form-input" id="e-pass" placeholder="••••••••">
+          <input type="password" class="form-input" id="e-pass" placeholder="Dejar vacío en primer acceso">
           <button type="button" class="pass-toggle" onclick="togglePass('e-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         </div>
       </div>
@@ -1148,29 +1148,36 @@ async function loginEmpleado() {
   const pass = document.getElementById('e-pass').value;
   const errEl = document.getElementById('login-error');
   errEl.textContent = '';
-  if (!username || !pass) { errEl.textContent = 'Introduce usuario y contraseña'; return; }
+  if (!username) { errEl.textContent = 'Introduce tu usuario'; return; }
 
   try {
+    // Buscar empleado por username
     const rows = await sbQuery('empleados', {
       select: '*',
-      filters: [
-        'username=eq.' + username,
-        'password_hash=eq.' + pass,
-        'activo=eq.true'
-      ]
+      filters: ['username=eq.' + username, 'activo=eq.true']
     });
     if (!rows || rows.length === 0) {
-      errEl.textContent = 'Usuario o contraseña incorrectos';
+      errEl.textContent = 'Usuario no encontrado';
       return;
     }
     const emp = rows[0];
-    enterApp({
-      tipo: 'empleado',
-      id: emp.id,
-      nombre: emp.nombre + ' ' + emp.apellidos,
-      username: username,
-      empleadoData: emp
-    });
+
+    // Si es primer login (sin contraseña o primer_login=true)
+    if (emp.primer_login || !emp.password_hash || emp.password_hash === '' || emp.password_hash === 'Turnox2026') {
+      if (!pass) {
+        // Entrar sin contraseña la primera vez
+        enterApp({ tipo: 'empleado', id: emp.id, nombre: emp.nombre + ' ' + emp.apellidos, username: username, empleadoData: emp, primerLogin: true });
+        return;
+      }
+    }
+
+    // Login normal con contraseña
+    if (!pass) { errEl.textContent = 'Introduce tu contraseña'; return; }
+    if (emp.password_hash !== pass) {
+      errEl.textContent = 'Contraseña incorrecta';
+      return;
+    }
+    enterApp({ tipo: 'empleado', id: emp.id, nombre: emp.nombre + ' ' + emp.apellidos, username: username, empleadoData: emp });
   } catch (e) {
     errEl.textContent = 'Error de conexión';
     console.error('Login error:', e);
@@ -1190,6 +1197,10 @@ function enterApp(user) {
   buildNav();
   loadAllData().then(() => {
     navigateTo(user.tipo === 'gestor' ? 'dashboard' : 'mi-turno');
+    // Si es primer login de empleado, forzar crear contraseña
+    if (user.primerLogin) {
+      setTimeout(function() { modalCrearPassword(); }, 500);
+    }
   });
 }
 
@@ -2323,6 +2334,7 @@ function renderMiTurno() {
   html += '<div class="card"><div class="card-header"><span class="card-title">Acciones</span></div><div class="card-body" style="display:flex;flex-direction:column;gap:8px">';
   html += '<button class="btn btn-outline w-full" onclick="navigateTo(\'mi-calendario\')">Ver mi calendario</button>';
   html += '<button class="btn btn-outline w-full" onclick="navigateTo(\'mis-solicitudes\')">Mis solicitudes</button>';
+  html += '<button class="btn btn-outline w-full" onclick="modalCambiarPassword()">Cambiar contraseña</button>';
   html += '</div></div></div>';
 
   document.getElementById('page-mi-turno').innerHTML = html;
@@ -3026,7 +3038,7 @@ function modalNuevoEmpleado() {
   body += '<div class="form-group"><label class="form-label">Apellidos</label><input class="form-input" id="ne-apellidos"></div></div>';
   body += '<div class="grid-2">';
   body += '<div class="form-group"><label class="form-label">Usuario</label><input class="form-input" id="ne-user" placeholder="p.ejemplo"></div>';
-  body += '<div class="form-group"><label class="form-label">Contraseña</label><div class="pass-wrap"><input type="password" class="form-input" id="ne-pass" value="Turnox2026"><button type="button" class="pass-toggle" onclick="togglePass(\'ne-pass\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div></div>';
+  body += '<div class="form-group"><label class="form-label">Contraseña inicial (el empleado la cambiará en su primer acceso)</label><input class="form-input" id="ne-pass" value="" placeholder="Dejar vacío = primer acceso sin contraseña"></div></div>';
   body += '<div class="grid-2">';
   body += '<div class="form-group"><label class="form-label">Letra</label><select class="form-input" id="ne-letra">';
   state.letras.forEach(l => { body += '<option value="' + l.id + '">Letra ' + l.nombre + '</option>'; });
@@ -3267,7 +3279,7 @@ function modalEditarEmpleado(empId) {
   body += '<div class="form-group"><label class="form-label">Apellidos</label><input class="form-input" id="ee-apellidos" value="' + emp.apellidos + '"></div></div>';
   body += '<div class="grid-2">';
   body += '<div class="form-group"><label class="form-label">Usuario</label><input class="form-input" id="ee-user" value="' + emp.username + '"></div>';
-  body += '<div class="form-group"><label class="form-label">Contraseña</label><div class="pass-wrap"><input type="password" class="form-input" id="ee-pass" placeholder="Dejar vacío para no cambiar"><button type="button" class="pass-toggle" onclick="togglePass(\'ee-pass\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div></div>';
+  body += '<div class="form-group"><label class="form-label">Contraseña</label><input class="form-input" id="ee-pass" placeholder="Dejar vacío para no cambiar"></div></div>';
   body += '<div class="grid-2">';
   body += '<div class="form-group"><label class="form-label">Letra</label><select class="form-input" id="ee-letra">';
   state.letras.forEach(l => { body += '<option value="' + l.id + '"' + (emp.letra_id === l.id ? ' selected' : '') + '>Letra ' + l.nombre + '</option>'; });
@@ -3581,6 +3593,73 @@ function togglePass(inputId, btn) {
     inp.type = 'password';
     btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
   }
+}
+
+function modalCrearPassword() {
+  var body = '<div class="alert alert-info" style="margin-bottom:16px"><span>Es tu primer acceso. Crea una contraseña para proteger tu cuenta.</span></div>';
+  body += '<div class="form-group"><label class="form-label">Nueva contraseña</label>';
+  body += '<div class="pass-wrap"><input type="password" class="form-input" id="cp-pass1" placeholder="Mínimo 4 caracteres">';
+  body += '<button type="button" class="pass-toggle" onclick="togglePass(\'cp-pass1\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  body += '<div class="form-group"><label class="form-label">Repetir contraseña</label>';
+  body += '<div class="pass-wrap"><input type="password" class="form-input" id="cp-pass2" placeholder="Repite la contraseña">';
+  body += '<button type="button" class="pass-toggle" onclick="togglePass(\'cp-pass2\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  // No cerrable — debe crear contraseña
+  var existing = document.getElementById('global-modal');
+  if (existing) existing.remove();
+  var m = document.createElement('div');
+  m.className = 'modal-overlay';
+  m.id = 'global-modal';
+  m.innerHTML = '<div class="modal" onclick="event.stopPropagation()">' +
+    '<div class="modal-header"><span class="modal-title">Crear contraseña</span></div>' +
+    '<div class="modal-body">' + body + '</div>' +
+    '<div class="modal-footer"><button class="btn btn-blue" onclick="guardarNuevaPassword()">Guardar contraseña</button></div></div>';
+  document.body.appendChild(m);
+}
+
+async function guardarNuevaPassword() {
+  var p1 = document.getElementById('cp-pass1').value;
+  var p2 = document.getElementById('cp-pass2').value;
+  if (!p1 || p1.length < 4) { showToast('Mínimo 4 caracteres', 'error'); return; }
+  if (p1 !== p2) { showToast('Las contraseñas no coinciden', 'error'); return; }
+  try {
+    await sbUpdate('empleados', state.user.id, { password_hash: p1, primer_login: false });
+    state.user.primerLogin = false;
+    if (state.user.empleadoData) state.user.empleadoData.password_hash = p1;
+    closeModal();
+    showToast('Contraseña creada correctamente', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalCambiarPassword() {
+  var body = '<div class="form-group"><label class="form-label">Contraseña actual</label>';
+  body += '<div class="pass-wrap"><input type="password" class="form-input" id="chp-actual">';
+  body += '<button type="button" class="pass-toggle" onclick="togglePass(\'chp-actual\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  body += '<div class="form-group"><label class="form-label">Nueva contraseña</label>';
+  body += '<div class="pass-wrap"><input type="password" class="form-input" id="chp-nueva">';
+  body += '<button type="button" class="pass-toggle" onclick="togglePass(\'chp-nueva\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  body += '<div class="form-group"><label class="form-label">Repetir nueva contraseña</label>';
+  body += '<div class="pass-wrap"><input type="password" class="form-input" id="chp-nueva2">';
+  body += '<button type="button" class="pass-toggle" onclick="togglePass(\'chp-nueva2\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  openModal('Cambiar contraseña', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="guardarCambioPassword()">Guardar</button>');
+}
+
+async function guardarCambioPassword() {
+  var actual = document.getElementById('chp-actual').value;
+  var nueva = document.getElementById('chp-nueva').value;
+  var nueva2 = document.getElementById('chp-nueva2').value;
+  if (!actual) { showToast('Introduce tu contraseña actual', 'error'); return; }
+  if (!nueva || nueva.length < 4) { showToast('Mínimo 4 caracteres', 'error'); return; }
+  if (nueva !== nueva2) { showToast('Las contraseñas no coinciden', 'error'); return; }
+  var emp = state.user.empleadoData;
+  if (emp && emp.password_hash !== actual) { showToast('Contraseña actual incorrecta', 'error'); return; }
+  try {
+    await sbUpdate('empleados', state.user.id, { password_hash: nueva });
+    if (state.user.empleadoData) state.user.empleadoData.password_hash = nueva;
+    closeModal();
+    showToast('Contraseña cambiada', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
