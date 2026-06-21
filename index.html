@@ -1787,78 +1787,202 @@ function filtrarEmpleados(q) {
 // =====================================================================
 // VACACIONES
 // =====================================================================
+// =====================================================================
+// VACACIONES (gestor)
+// =====================================================================
 async function renderVacaciones() {
-  let rondas = [], solicitudes = [];
+  let rondas = [], solicitudes = [], configLetras = [];
   try {
     rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'numero_ronda.asc' });
-    solicitudes = await sbQuery('vacaciones_solicitudes', { select: '*', order: 'created_at.desc', limit: 50 });
+    solicitudes = await sbQuery('vacaciones_solicitudes', { select: '*', order: 'created_at.desc', limit: 100 });
+    configLetras = await sbQuery('vacaciones_config_letra', { select: '*', order: 'orden.asc' });
   } catch (e) { console.error(e); }
 
-  const pendientes = solicitudes.filter(s => s.estado === 'pendiente');
+  state.vacConfigLetras = configLetras || [];
+  const hoy = todayStr();
 
   let html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px"><h2 style="font-size:15px;font-weight:600">Vacaciones 2026</h2></div>';
-  html += '<div class="grid-2 mb-6"><div>';
-  html += '<h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text2)">RONDAS</h3>';
+
+  // RONDAS
   rondas.forEach(r => {
-    html += '<div class="vac-ronda-card"><div class="vac-ronda-header"><div>';
-    html += '<div class="vac-ronda-title">Ronda ' + r.numero_ronda + ' — ' + r.nombre + '</div>';
-    html += '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + (r.descripcion || '') + ' · ' + r.dias + ' días</div></div>';
-    html += '<span class="status-badge ' + (r.abierta ? 'open' : 'closed') + '">' + (r.abierta ? 'Abierta' : 'Cerrada') + '</span></div>';
-    html += '<div style="display:flex;gap:8px">';
+    const configs = configLetras.filter(cl => cl.ronda_id === r.id).sort((a, b) => a.orden - b.orden);
+    const letraActiva = configs.find(cl => cl.fecha_desde <= hoy && cl.fecha_hasta >= hoy);
+
+    html += '<div class="card mb-4"><div class="card-header"><div>';
+    html += '<span class="card-title">Ronda ' + r.numero_ronda + ' — ' + r.nombre + '</span>';
+    html += '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + (r.descripcion || '') + ' · ' + r.dias + ' días ' + (r.numero_ronda <= 2 ? 'consecutivos' : 'sueltos') + '</div></div>';
+    html += '<div style="display:flex;gap:6px;align-items:center">';
+    html += '<span class="status-badge ' + (r.abierta ? 'open' : 'closed') + '">' + (r.abierta ? 'Abierta' : 'Cerrada') + '</span>';
     html += '<button class="btn btn-sm ' + (r.abierta ? 'btn-red' : 'btn-green') + '" onclick="toggleRonda(\'' + r.id + '\',' + r.abierta + ')">' + (r.abierta ? 'Cerrar' : 'Abrir') + '</button>';
     html += '</div></div>';
+
+    // Config letras para esta ronda
+    html += '<div class="card-body">';
+    if (r.abierta || configs.length > 0) {
+      html += '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">ORDEN Y FECHAS POR LETRA</div>';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--bg)">';
+      html += '<th style="padding:6px 10px;text-align:left">Orden</th>';
+      html += '<th style="padding:6px 10px;text-align:left">Letra</th>';
+      html += '<th style="padding:6px 10px;text-align:left">Puede pedir desde</th>';
+      html += '<th style="padding:6px 10px;text-align:left">Puede pedir hasta</th>';
+      html += '<th style="padding:6px 10px;text-align:left">Estado</th>';
+      html += '<th style="padding:6px 10px;text-align:left">Solicitudes</th>';
+      html += '<th style="padding:6px 10px"></th>';
+      html += '</tr></thead><tbody>';
+
+      if (configs.length > 0) {
+        configs.forEach(cl => {
+          var letr = getLetra(cl.letra_id);
+          var esActiva = cl.fecha_desde <= hoy && cl.fecha_hasta >= hoy;
+          var esPasada = cl.fecha_hasta < hoy;
+          var esFutura = cl.fecha_desde > hoy;
+          var solsLetra = solicitudes.filter(s => s.ronda_id === r.id && state.empleados.find(e => e.id === s.empleado_id && e.letra_id === cl.letra_id));
+          var estadoHtml = '';
+          if (esActiva) estadoHtml = '<span style="font-size:10px;font-weight:700;color:#166534;background:#DCFCE7;padding:2px 8px;border-radius:10px">ACTIVA</span>';
+          else if (esPasada) estadoHtml = '<span style="font-size:10px;color:var(--text3)">Finalizada</span>';
+          else estadoHtml = '<span style="font-size:10px;color:var(--text2)">Pendiente</span>';
+
+          html += '<tr style="border-bottom:1px solid var(--border);' + (esActiva ? 'background:#F0FDF4;' : '') + '">';
+          html += '<td style="padding:6px 10px;font-weight:600">' + cl.orden + '</td>';
+          html += '<td style="padding:6px 10px"><span class="letra-badge" style="background:' + (letr ? letr.color + '22' : '#eee') + ';color:' + (letr ? letr.color : '#999') + '">' + (letr ? letr.nombre : '?') + '</span></td>';
+          html += '<td style="padding:6px 10px">' + formatDateES(cl.fecha_desde) + '</td>';
+          html += '<td style="padding:6px 10px">' + formatDateES(cl.fecha_hasta) + '</td>';
+          html += '<td style="padding:6px 10px">' + estadoHtml + '</td>';
+          html += '<td style="padding:6px 10px"><span style="font-weight:600">' + solsLetra.length + '</span> de ' + state.empleados.filter(e => e.letra_id === cl.letra_id).length + '</td>';
+          html += '<td style="padding:6px 10px"><button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarConfigLetra(\'' + cl.id + '\',\'' + r.id + '\')">✕</button></td></tr>';
+        });
+      } else {
+        html += '<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--text3)">Sin configuración de letras. Añade el orden.</td></tr>';
+      }
+      html += '</tbody></table>';
+      html += '<button class="btn btn-sm btn-outline" style="margin-top:8px" onclick="modalAddConfigLetra(\'' + r.id + '\',\'' + r.nombre + '\',' + (configs.length + 1) + ')">+ Añadir letra</button>';
+    } else {
+      html += '<p style="font-size:12px;color:var(--text3)">Ronda cerrada. Ábrela para configurar el orden de letras.</p>';
+    }
+    html += '</div></div>';
   });
-  html += '</div><div>';
-  html += '<h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text2)">SOLICITUDES PENDIENTES (' + pendientes.length + ')</h3>';
-  if (pendientes.length === 0) {
-    html += '<div class="empty-state"><p>No hay solicitudes pendientes</p></div>';
-  } else {
-    pendientes.slice(0, 8).forEach(s => {
-      const emp = state.empleados.find(e => e.id === s.empleado_id);
-      html += '<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">';
-      html += '<div style="font-size:13px;font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</div>';
-      html += '<div style="font-size:12px;color:var(--text2)">' + formatDateES(s.fecha_inicio) + ' → ' + formatDateES(s.fecha_fin) + ' · ' + s.dias_solicitados + ' días</div>';
-      html += '<div style="display:flex;gap:6px;margin-top:8px">';
-      html += '<button class="btn btn-sm btn-green" onclick="aprobarSolicitud(\'' + s.id + '\')">Aprobar</button>';
-      html += '<button class="btn btn-sm btn-red" onclick="rechazarSolicitud(\'' + s.id + '\')">Rechazar</button>';
-      html += '</div></div>';
-    });
+
+  // SOLICITUDES
+  html += '<div class="card"><div class="card-header"><span class="card-title">Todas las solicitudes</span>';
+  html += '<button class="btn btn-sm btn-green" onclick="aprobarTodasPendientes()">Aprobar todas pendientes</button></div>';
+  html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
+  html += '<th>Empleado</th><th>Letra</th><th>Área</th><th>Ronda</th><th>Fechas</th><th>Días</th><th>Estado</th><th></th>';
+  html += '</tr></thead><tbody>';
+  if (solicitudes.length === 0) {
+    html += '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Sin solicitudes</td></tr>';
   }
-  html += '</div></div>';
+  solicitudes.forEach(s => {
+    var emp = state.empleados.find(e => e.id === s.empleado_id);
+    var letr = emp ? getLetra(emp.letra_id) : null;
+    var area = emp ? getArea(emp.area_principal_id) : null;
+    var ronda = rondas.find(r => r.id === s.ronda_id);
+    html += '<tr><td style="font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</td>';
+    html += '<td>' + (letr ? '<span class="letra-badge" style="background:' + letr.color + '22;color:' + letr.color + '">' + letr.nombre + '</span>' : '?') + '</td>';
+    html += '<td style="font-size:12px">' + (area ? area.nombre : '?') + '</td>';
+    html += '<td style="font-size:12px">' + (ronda ? 'R' + ronda.numero_ronda : '?') + '</td>';
+    html += '<td style="font-size:12px">' + formatDateES(s.fecha_inicio) + ' – ' + formatDateES(s.fecha_fin) + '</td>';
+    html += '<td>' + s.dias_solicitados + '</td>';
+    html += '<td><span class="status-badge ' + s.estado + '">' + s.estado + '</span></td>';
+    html += '<td>';
+    if (s.estado === 'pendiente') {
+      html += '<button class="btn btn-sm btn-green" onclick="aprobarSolicitud(\'' + s.id + '\')">✓</button> ';
+      html += '<button class="btn btn-sm btn-red" onclick="rechazarSolicitud(\'' + s.id + '\')">✕</button>';
+    }
+    html += '</td></tr>';
+  });
+  html += '</tbody></table></div></div>';
   document.getElementById('page-vacaciones').innerHTML = html;
 }
 
+function modalAddConfigLetra(rondaId, rondaNombre, nextOrden) {
+  var body = '<div class="form-group"><label class="form-label">Letra</label><select class="form-input" id="vcl-letra">';
+  state.letras.forEach(function(l) { body += '<option value="' + l.id + '">' + l.nombre + '</option>'; });
+  body += '</select></div>';
+  body += '<div class="form-group"><label class="form-label">Orden</label><input type="number" class="form-input" id="vcl-orden" value="' + nextOrden + '"></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Puede pedir desde</label><input type="date" class="form-input" id="vcl-desde"></div>';
+  body += '<div class="form-group"><label class="form-label">Puede pedir hasta</label><input type="date" class="form-input" id="vcl-hasta"></div></div>';
+  openModal('Añadir letra — ' + rondaNombre, body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="guardarConfigLetra(\'' + rondaId + '\')">Añadir</button>');
+}
+
+async function guardarConfigLetra(rondaId) {
+  var data = {
+    ronda_id: rondaId,
+    letra_id: document.getElementById('vcl-letra').value,
+    orden: parseInt(document.getElementById('vcl-orden').value),
+    fecha_desde: document.getElementById('vcl-desde').value,
+    fecha_hasta: document.getElementById('vcl-hasta').value,
+  };
+  if (!data.fecha_desde || !data.fecha_hasta) { showToast('Indica las fechas', 'error'); return; }
+  try {
+    await sbInsert('vacaciones_config_letra', data);
+    closeModal();
+    showToast('Letra añadida', 'success');
+    renderVacaciones();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function eliminarConfigLetra(id, rondaId) {
+  if (!confirm('¿Eliminar esta configuración?')) return;
+  try {
+    await sbDelete('vacaciones_config_letra', id);
+    showToast('Eliminada', 'success');
+    renderVacaciones();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function aprobarTodasPendientes() {
+  if (!confirm('¿Aprobar todas las solicitudes pendientes?')) return;
+  try {
+    var pendientes = await sbQuery('vacaciones_solicitudes', { select: 'id', filters: ['estado=eq.pendiente'] });
+    for (var i = 0; i < pendientes.length; i++) {
+      await sbUpdate('vacaciones_solicitudes', pendientes[i].id, { estado: 'aprobada' });
+    }
+    showToast(pendientes.length + ' solicitudes aprobadas', 'success');
+    renderVacaciones();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
 // =====================================================================
-// INTERCAMBIOS
+// INTERCAMBIOS (gestor + empleado)
 // =====================================================================
 async function renderIntercambios() {
   let intercambios = [];
   try { intercambios = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 30 }); } catch (e) {}
-  const pendientes = intercambios.filter(i => i.estado === 'pendiente' || i.estado === 'aceptado');
 
-  let html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px"><h2 style="font-size:15px;font-weight:600">Intercambios de turno</h2></div>';
+  let html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px">';
+  html += '<h2 style="font-size:15px;font-weight:600">Intercambios de turno</h2></div>';
 
-  if (pendientes.length > 0) {
-    html += '<div class="alert alert-warning" style="margin-bottom:16px"><span><strong>' + pendientes.length + ' intercambios</strong> pendientes de revisión</span></div>';
-  }
-
-  html += '<div class="card"><div class="card-header"><span class="card-title">Historial</span></div>';
-  html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr><th>Solicitante</th><th>Receptor</th><th>Fecha Sol.</th><th>Fecha Rec.</th><th>Estado</th></tr></thead><tbody>';
+  html += '<div class="card"><div class="card-header"><span class="card-title">Historial de intercambios</span></div>';
+  html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
+  html += '<th>Solicitante</th><th>Área cubre</th><th>Receptor</th><th>Área cubre</th><th>Fecha</th><th>Estado</th>';
+  html += '</tr></thead><tbody>';
   if (intercambios.length === 0) {
-    html += '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin intercambios</td></tr>';
+    html += '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text3)">Sin intercambios</td></tr>';
   }
-  intercambios.forEach(ic => {
-    const sol = state.empleados.find(e => e.id === ic.solicitante_id);
-    const rec = state.empleados.find(e => e.id === ic.receptor_id);
-    html += '<tr><td>' + (sol ? sol.nombre + ' ' + sol.apellidos : '?') + '</td>';
-    html += '<td>' + (rec ? rec.nombre + ' ' + rec.apellidos : '?') + '</td>';
-    html += '<td>' + formatDateES(ic.fecha_solicitante) + '</td>';
-    html += '<td>' + formatDateES(ic.fecha_receptor) + '</td>';
-    html += '<td><span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></td></tr>';
+  intercambios.forEach(function(ic) {
+    var sol = state.empleados.find(function(e) { return e.id === ic.solicitante_id; });
+    var rec = state.empleados.find(function(e) { return e.id === ic.receptor_id; });
+    var areaSol = ic.area_solicitante_id ? getArea(ic.area_solicitante_id) : null;
+    var areaRec = ic.area_receptor_id ? getArea(ic.area_receptor_id) : null;
+    html += '<tr>';
+    html += '<td><div><div style="font-weight:600;font-size:12px">' + (sol ? sol.nombre + ' ' + sol.apellidos : '?') + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3)">' + (ic.turno_solicitante || '') + '</div></div></td>';
+    html += '<td style="font-size:12px">' + (areaSol ? areaSol.nombre : '—') + '</td>';
+    html += '<td><div><div style="font-weight:600;font-size:12px">' + (rec ? rec.nombre + ' ' + rec.apellidos : '?') + '</div>';
+    html += '<div style="font-size:10px;color:var(--text3)">' + (ic.turno_receptor || '') + '</div></div></td>';
+    html += '<td style="font-size:12px">' + (areaRec ? areaRec.nombre : '—') + '</td>';
+    html += '<td style="font-size:12px">' + formatDateES(ic.fecha_solicitante) + '</td>';
+    html += '<td><span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></td>';
+    html += '</tr>';
   });
   html += '</tbody></table></div></div>';
   document.getElementById('page-intercambios').innerHTML = html;
 }
+
+
 
 // =====================================================================
 // AUSENCIAS
@@ -2135,39 +2259,365 @@ function renderMiCalendario() {
 // =====================================================================
 // MIS SOLICITUDES (empleado)
 // =====================================================================
+// =====================================================================
+// MIS SOLICITUDES (empleado)
+// =====================================================================
 async function renderMisSolicitudes() {
-  let vacSol = [], intercambios = [];
-  try {
-    vacSol = await sbQuery('vacaciones_solicitudes', { select: '*', filters: ['empleado_id=eq.' + state.user.id], order: 'created_at.desc' });
-  } catch (e) {}
-  try {
-    intercambios = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 20 });
-    intercambios = intercambios.filter(ic => ic.solicitante_id === state.user.id || ic.receptor_id === state.user.id);
-  } catch (e) {}
+  var emp = state.user.empleadoData || state.empleados.find(function(e) { return e.id === state.user.id; });
+  if (!emp) { document.getElementById('page-mis-solicitudes').innerHTML = '<div class="empty-state"><p>Cargando...</p></div>'; return; }
 
-  let html = '<div class="grid-2"><div>';
-  html += '<h3 style="font-size:13px;font-weight:600;margin-bottom:12px">MIS VACACIONES</h3>';
-  if (vacSol.length === 0) html += '<div class="empty-state"><p>Sin solicitudes</p></div>';
-  vacSol.forEach(s => {
-    html += '<div class="vac-ronda-card"><div class="vac-ronda-header"><div>';
-    html += '<div style="font-size:13px;font-weight:600">' + formatDateES(s.fecha_inicio) + ' – ' + formatDateES(s.fecha_fin) + '</div>';
-    html += '<div style="font-size:11px;color:var(--text2)">' + s.dias_solicitados + ' días</div></div>';
-    html += '<span class="status-badge ' + s.estado + '">' + s.estado + '</span></div></div>';
-  });
+  var vacSol = [], intercambios = [], configLetras = [], todasSolicitudes = [];
+  try { vacSol = await sbQuery('vacaciones_solicitudes', { select: '*', filters: ['empleado_id=eq.' + state.user.id], order: 'created_at.desc' }); } catch (e) {}
+  try { intercambios = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 20 }); intercambios = intercambios.filter(function(ic) { return ic.solicitante_id === state.user.id || ic.receptor_id === state.user.id; }); } catch (e) {}
+  try { configLetras = await sbQuery('vacaciones_config_letra', { select: '*', order: 'orden.asc' }); } catch (e) {}
+  try { todasSolicitudes = await sbQuery('vacaciones_solicitudes', { select: '*' }); } catch (e) {}
 
-  html += '</div><div>';
-  html += '<h3 style="font-size:13px;font-weight:600;margin-bottom:12px">MIS INTERCAMBIOS</h3>';
-  if (intercambios.length === 0) html += '<div class="empty-state"><p>Sin intercambios</p></div>';
-  intercambios.forEach(ic => {
-    const otro = state.empleados.find(e => e.id === (ic.solicitante_id === state.user.id ? ic.receptor_id : ic.solicitante_id));
-    html += '<div class="vac-ronda-card"><div class="vac-ronda-header"><div>';
-    html += '<div style="font-size:13px;font-weight:600">Con ' + (otro ? otro.nombre + ' ' + otro.apellidos : '?') + '</div>';
-    html += '<div style="font-size:11px;color:var(--text2)">' + formatDateES(ic.fecha_solicitante) + ' ⇄ ' + formatDateES(ic.fecha_receptor) + '</div></div>';
-    html += '<span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></div></div>';
-  });
+  var rondas = [];
+  try { rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'numero_ronda.asc' }); } catch (e) {}
+
+  var hoy = todayStr();
+  var miLetraId = emp.letra_id;
+  var miAreaId = emp.area_principal_id;
+
+  // Buscar si tiene alguna ronda activa para su letra
+  var rondaActiva = null;
+  var configActiva = null;
+  for (var i = 0; i < rondas.length; i++) {
+    if (!rondas[i].abierta) continue;
+    var cl = configLetras.find(function(c) { return c.ronda_id === rondas[i].id && c.letra_id === miLetraId && c.fecha_desde <= hoy && c.fecha_hasta >= hoy; });
+    if (cl) { rondaActiva = rondas[i]; configActiva = cl; break; }
+  }
+
+  var html = '';
+
+  // === SOLICITAR VACACIONES ===
+  html += '<div class="card mb-4"><div class="card-header"><span class="card-title">Solicitar Vacaciones</span></div><div class="card-body">';
+  if (rondaActiva && configActiva) {
+    html += '<div class="alert alert-success" style="margin-bottom:16px"><span><strong>Ronda ' + rondaActiva.numero_ronda + ' — ' + rondaActiva.nombre + '</strong> activa para tu letra. Puedes solicitar hasta el ' + formatDateES(configActiva.fecha_hasta) + '. ' + rondaActiva.dias + ' días ' + (rondaActiva.numero_ronda <= 2 ? 'consecutivos' : 'sueltos') + '.</span></div>';
+
+    // Calendario anual de mi área — mostrar vacaciones ya pedidas por otros de mi área
+    var vacsMiArea = todasSolicitudes.filter(function(s) {
+      if (s.estado === 'rechazada') return false;
+      if (s.ronda_id !== rondaActiva.id) return false;
+      var empS = state.empleados.find(function(e) { return e.id === s.empleado_id; });
+      return empS && empS.area_principal_id === miAreaId && s.empleado_id !== emp.id;
+    });
+
+    // Generar días bloqueados (vacaciones de otros + 2 días buffer)
+    var diasBloqueados = {};
+    vacsMiArea.forEach(function(s) {
+      var d = new Date(s.fecha_inicio + 'T12:00:00');
+      var fin = new Date(s.fecha_fin + 'T12:00:00');
+      // 2 días antes
+      var bufferAntes = new Date(d); bufferAntes.setDate(bufferAntes.getDate() - 2);
+      // 2 días después
+      var bufferDespues = new Date(fin); bufferDespues.setDate(bufferDespues.getDate() + 2);
+
+      var cur = new Date(bufferAntes);
+      while (cur <= bufferDespues) {
+        var ds = cur.getFullYear() + '-' + String(cur.getMonth() + 1).padStart(2, '0') + '-' + String(cur.getDate()).padStart(2, '0');
+        if (cur >= d && cur <= fin) {
+          diasBloqueados[ds] = 'ocupado'; // vacaciones de otro
+        } else {
+          if (!diasBloqueados[ds]) diasBloqueados[ds] = 'buffer'; // buffer 2 días
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+    });
+
+    // Validar max 2 fines de semana por mes y área
+    var fdsOcupadosPorMes = {};
+    vacsMiArea.forEach(function(s) {
+      var d = new Date(s.fecha_inicio + 'T12:00:00');
+      var fin = new Date(s.fecha_fin + 'T12:00:00');
+      while (d <= fin) {
+        if (d.getDay() === 0 || d.getDay() === 6) {
+          var mesKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+          if (!fdsOcupadosPorMes[mesKey]) fdsOcupadosPorMes[mesKey] = new Set();
+          // Identificar el fin de semana por la semana ISO
+          var weekNum = Math.ceil(d.getDate() / 7);
+          fdsOcupadosPorMes[mesKey].add(weekNum);
+        }
+        d.setDate(d.getDate() + 1);
+      }
+    });
+
+    // Mini calendario anual de 12 meses
+    html += '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Calendario de tu área — ' + (getArea(miAreaId) ? getArea(miAreaId).nombre : '?') + '</div>';
+    html += '<div style="font-size:11px;color:var(--text3);margin-bottom:12px">🔴 Ocupado (otro empleado) · 🟡 Buffer 2 días · Selecciona tus días haciendo clic</div>';
+
+    var miSolicitudActual = vacSol.find(function(s) { return s.ronda_id === rondaActiva.id && s.estado !== 'rechazada'; });
+
+    if (miSolicitudActual) {
+      html += '<div class="alert alert-info"><span>Ya has solicitado vacaciones para esta ronda: <strong>' + formatDateES(miSolicitudActual.fecha_inicio) + ' – ' + formatDateES(miSolicitudActual.fecha_fin) + '</strong> (' + miSolicitudActual.dias_solicitados + ' días) — ' + miSolicitudActual.estado + '</span></div>';
+    } else {
+      html += '<div class="grid-2" style="margin-bottom:12px">';
+      html += '<div class="form-group"><label class="form-label">Fecha inicio</label><input type="date" class="form-input" id="sv-inicio"></div>';
+      html += '<div class="form-group"><label class="form-label">Fecha fin</label><input type="date" class="form-input" id="sv-fin"></div></div>';
+      html += '<button class="btn btn-blue" onclick="enviarSolicitudVacaciones(\'' + rondaActiva.id + '\',' + rondaActiva.dias + ',' + rondaActiva.numero_ronda + ')">Solicitar vacaciones</button>';
+    }
+
+    // Mostrar vacaciones ya pedidas en esta área
+    if (vacsMiArea.length > 0) {
+      html += '<div style="margin-top:16px;font-size:12px;font-weight:600;color:var(--text2)">Vacaciones ya asignadas en tu área:</div>';
+      vacsMiArea.forEach(function(s) {
+        var empS = state.empleados.find(function(e) { return e.id === s.empleado_id; });
+        var letrS = empS ? getLetra(empS.letra_id) : null;
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">';
+        html += '<span class="turno-badge V">V</span>';
+        html += '<span style="font-size:12px;font-weight:600">' + (empS ? empS.nombre + ' ' + empS.apellidos : '?') + '</span>';
+        html += '<span class="letra-badge" style="background:' + (letrS ? letrS.color + '22' : '#eee') + ';color:' + (letrS ? letrS.color : '#999') + '">' + (letrS ? letrS.nombre : '?') + '</span>';
+        html += '<span style="font-size:12px;color:var(--text2)">' + formatDateES(s.fecha_inicio) + ' – ' + formatDateES(s.fecha_fin) + '</span>';
+        html += '</div>';
+      });
+    }
+
+  } else {
+    // No tiene ronda activa
+    var proxConfig = null;
+    for (var j = 0; j < rondas.length; j++) {
+      if (!rondas[j].abierta) continue;
+      var clFutura = configLetras.find(function(c) { return c.ronda_id === rondas[j].id && c.letra_id === miLetraId && c.fecha_desde > hoy; });
+      if (clFutura) { proxConfig = { ronda: rondas[j], config: clFutura }; break; }
+    }
+    if (proxConfig) {
+      html += '<div class="alert alert-warning"><span>No es tu turno para solicitar vacaciones. Tu letra podrá solicitar a partir del <strong>' + formatDateES(proxConfig.config.fecha_desde) + '</strong> en la ' + proxConfig.ronda.nombre + '.</span></div>';
+    } else {
+      html += '<div class="alert alert-info"><span>No hay rondas de vacaciones abiertas para tu letra en este momento.</span></div>';
+    }
+  }
   html += '</div></div>';
+
+  // === MIS SOLICITUDES ===
+  html += '<div class="grid-2"><div>';
+  html += '<div class="card"><div class="card-header"><span class="card-title">Mis vacaciones</span></div><div class="card-body">';
+  if (vacSol.length === 0) html += '<div class="empty-state"><p>Sin solicitudes</p></div>';
+  vacSol.forEach(function(s) {
+    var ronda = rondas.find(function(r) { return r.id === s.ronda_id; });
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">';
+    html += '<div><div style="font-size:13px;font-weight:600">' + formatDateES(s.fecha_inicio) + ' – ' + formatDateES(s.fecha_fin) + '</div>';
+    html += '<div style="font-size:11px;color:var(--text2)">' + (ronda ? ronda.nombre : '') + ' · ' + s.dias_solicitados + ' días</div></div>';
+    html += '<span class="status-badge ' + s.estado + '">' + s.estado + '</span></div>';
+  });
+  html += '</div></div></div>';
+
+  // === MIS INTERCAMBIOS ===
+  html += '<div><div class="card"><div class="card-header"><span class="card-title">Mis intercambios</span>';
+  html += '<button class="btn btn-sm btn-blue" onclick="modalNuevoIntercambio()">+ Proponer</button></div><div class="card-body">';
+  if (intercambios.length === 0) html += '<div class="empty-state"><p>Sin intercambios</p></div>';
+  intercambios.forEach(function(ic) {
+    var esSolicitante = ic.solicitante_id === state.user.id;
+    var otro = state.empleados.find(function(e) { return e.id === (esSolicitante ? ic.receptor_id : ic.solicitante_id); });
+    var areaSol = ic.area_solicitante_id ? getArea(ic.area_solicitante_id) : null;
+    var areaRec = ic.area_receptor_id ? getArea(ic.area_receptor_id) : null;
+
+    html += '<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:start">';
+    html += '<div><div style="font-size:13px;font-weight:600">Con ' + (otro ? otro.nombre + ' ' + otro.apellidos : '?') + '</div>';
+    html += '<div style="font-size:11px;color:var(--text2)">' + formatDateES(ic.fecha_solicitante) + ' · ' + (ic.turno_solicitante || '') + ' → ' + (ic.turno_receptor || '') + '</div>';
+    if (areaSol && areaRec) html += '<div style="font-size:11px;color:var(--text3)">Áreas: ' + areaSol.nombre + ' ⇄ ' + areaRec.nombre + '</div>';
+    html += '</div>';
+    html += '<span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></div>';
+
+    // Si soy receptor y está pendiente, puedo aceptar
+    if (!esSolicitante && ic.estado === 'pendiente') {
+      html += '<div style="display:flex;gap:6px;margin-top:8px">';
+      html += '<button class="btn btn-sm btn-green" onclick="aceptarIntercambio(\'' + ic.id + '\')">Aceptar</button>';
+      html += '<button class="btn btn-sm btn-red" onclick="rechazarIntercambioEmp(\'' + ic.id + '\')">Rechazar</button>';
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+  html += '</div></div></div></div>';
+
   document.getElementById('page-mis-solicitudes').innerHTML = html;
 }
+
+async function enviarSolicitudVacaciones(rondaId, diasRonda, numRonda) {
+  var inicio = document.getElementById('sv-inicio').value;
+  var fin = document.getElementById('sv-fin').value;
+  if (!inicio || !fin) { showToast('Indica las fechas', 'error'); return; }
+
+  var dias = Math.round((new Date(fin + 'T12:00:00') - new Date(inicio + 'T12:00:00')) / 86400000) + 1;
+
+  // Validar días consecutivos para rondas 1 y 2
+  if (numRonda <= 2 && dias !== diasRonda) {
+    showToast('Debes solicitar exactamente ' + diasRonda + ' días consecutivos. Has seleccionado ' + dias, 'error');
+    return;
+  }
+  // Validar días sueltos ronda 3
+  if (numRonda === 3 && dias > diasRonda) {
+    showToast('Máximo ' + diasRonda + ' días para esta ronda', 'error');
+    return;
+  }
+
+  // Validar no coincidencia con misma área + buffer 2 días
+  var emp = state.user.empleadoData || state.empleados.find(function(e) { return e.id === state.user.id; });
+  var todasSols = [];
+  try { todasSols = await sbQuery('vacaciones_solicitudes', { select: '*', filters: ['ronda_id=eq.' + rondaId] }); } catch(e) {}
+
+  var conflicto = false;
+  todasSols.forEach(function(s) {
+    if (s.estado === 'rechazada') return;
+    if (s.empleado_id === emp.id) return;
+    var empS = state.empleados.find(function(e) { return e.id === s.empleado_id; });
+    if (!empS || empS.area_principal_id !== emp.area_principal_id) return;
+
+    // Check overlap con buffer 2 días
+    var sInicio = new Date(s.fecha_inicio + 'T12:00:00');
+    var sFin = new Date(s.fecha_fin + 'T12:00:00');
+    sInicio.setDate(sInicio.getDate() - 2);
+    sFin.setDate(sFin.getDate() + 2);
+
+    var miInicio = new Date(inicio + 'T12:00:00');
+    var miFin = new Date(fin + 'T12:00:00');
+
+    if (miInicio <= sFin && miFin >= sInicio) conflicto = true;
+  });
+
+  if (conflicto) {
+    showToast('Conflicto: otro empleado de tu área ya tiene vacaciones en esas fechas (o dentro del margen de 2 días)', 'error');
+    return;
+  }
+
+  // Validar max 2 fines de semana por mes y área
+  var d = new Date(inicio + 'T12:00:00');
+  var finDate = new Date(fin + 'T12:00:00');
+  var misFds = {};
+  while (d <= finDate) {
+    if (d.getDay() === 0 || d.getDay() === 6) {
+      var mesKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      if (!misFds[mesKey]) misFds[mesKey] = new Set();
+      misFds[mesKey].add(Math.ceil(d.getDate() / 7));
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  // Contar fds existentes por mes en la misma área
+  var fdsError = false;
+  Object.keys(misFds).forEach(function(mesKey) {
+    var fdsExistentes = new Set();
+    todasSols.forEach(function(s) {
+      if (s.estado === 'rechazada') return;
+      var empS = state.empleados.find(function(e) { return e.id === s.empleado_id; });
+      if (!empS || empS.area_principal_id !== emp.area_principal_id) return;
+      var dd = new Date(s.fecha_inicio + 'T12:00:00');
+      var ff = new Date(s.fecha_fin + 'T12:00:00');
+      while (dd <= ff) {
+        var mk = dd.getFullYear() + '-' + String(dd.getMonth() + 1).padStart(2, '0');
+        if (mk === mesKey && (dd.getDay() === 0 || dd.getDay() === 6)) {
+          fdsExistentes.add(Math.ceil(dd.getDate() / 7));
+        }
+        dd.setDate(dd.getDate() + 1);
+      }
+    });
+    var totalFds = new Set([...fdsExistentes, ...misFds[mesKey]]);
+    if (totalFds.size > 2) fdsError = true;
+  });
+
+  if (fdsError) {
+    showToast('Máximo 2 fines de semana por mes y área. Este mes ya hay 2 ocupados.', 'error');
+    return;
+  }
+
+  try {
+    await sbInsert('vacaciones_solicitudes', {
+      empleado_id: emp.id,
+      ronda_id: rondaId,
+      fecha_inicio: inicio,
+      fecha_fin: fin,
+      dias_solicitados: dias,
+      estado: 'pendiente',
+    });
+    showToast('Solicitud enviada', 'success');
+    renderMisSolicitudes();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalNuevoIntercambio() {
+  var emp = state.user.empleadoData || state.empleados.find(function(e) { return e.id === state.user.id; });
+  if (!emp) return;
+
+  var body = '<div class="form-group"><label class="form-label">Fecha del cambio</label><input type="date" class="form-input" id="ni-fecha"></div>';
+  body += '<div class="form-group"><label class="form-label">Compañero</label><select class="form-input" id="ni-receptor">';
+  state.empleados.filter(function(e) { return e.id !== emp.id; }).forEach(function(e) {
+    var l = getLetra(e.letra_id);
+    body += '<option value="' + e.id + '">' + e.nombre + ' ' + e.apellidos + ' (' + (l ? l.nombre : '?') + ')</option>';
+  });
+  body += '</select></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Tu turno ese día</label><select class="form-input" id="ni-turno-sol">';
+  ['M','T','N','R'].forEach(function(t) { body += '<option value="' + t + '">' + t + ' — ' + turnoLabel(t) + '</option>'; });
+  body += '</select></div>';
+  body += '<div class="form-group"><label class="form-label">Turno del compañero</label><select class="form-input" id="ni-turno-rec">';
+  ['M','T','N','R'].forEach(function(t) { body += '<option value="' + t + '">' + t + ' — ' + turnoLabel(t) + '</option>'; });
+  body += '</select></div></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Tú cubres área</label><select class="form-input" id="ni-area-sol">';
+  state.areas.forEach(function(a) { body += '<option value="' + a.id + '"' + (a.id === emp.area_principal_id ? ' selected' : '') + '>' + a.nombre + '</option>'; });
+  body += '</select></div>';
+  body += '<div class="form-group"><label class="form-label">Compañero cubre área</label><select class="form-input" id="ni-area-rec">';
+  state.areas.forEach(function(a) { body += '<option value="' + a.id + '">' + a.nombre + '</option>'; });
+  body += '</select></div></div>';
+  body += '<div class="form-group"><label class="form-label">Notas</label><textarea class="form-input" id="ni-notas" rows="2"></textarea></div>';
+
+  openModal('Proponer intercambio', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="enviarIntercambio()">Proponer</button>');
+}
+
+async function enviarIntercambio() {
+  var fecha = document.getElementById('ni-fecha').value;
+  if (!fecha) { showToast('Indica la fecha', 'error'); return; }
+  try {
+    await sbInsert('intercambios', {
+      solicitante_id: state.user.id,
+      receptor_id: document.getElementById('ni-receptor').value,
+      fecha_solicitante: fecha,
+      fecha_receptor: fecha,
+      turno_solicitante: document.getElementById('ni-turno-sol').value,
+      turno_receptor: document.getElementById('ni-turno-rec').value,
+      area_solicitante_id: document.getElementById('ni-area-sol').value,
+      area_receptor_id: document.getElementById('ni-area-rec').value,
+      notas: document.getElementById('ni-notas').value,
+      estado: 'pendiente',
+    });
+    closeModal();
+    showToast('Intercambio propuesto', 'success');
+    renderMisSolicitudes();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function aceptarIntercambio(id) {
+  try {
+    // Aceptar y crear turnos editados
+    var ic = await sbQuery('intercambios', { select: '*', filters: ['id=eq.' + id] });
+    if (!ic || ic.length === 0) { showToast('No encontrado', 'error'); return; }
+    ic = ic[0];
+
+    // Crear turno editado para solicitante (cubre area del receptor)
+    await sbInsert('turnos', { empleado_id: ic.solicitante_id, fecha: ic.fecha_solicitante, tipo: ic.turno_receptor, area_id: ic.area_solicitante_id, editado_manualmente: true, notas: 'Intercambio' });
+    // Crear turno editado para receptor (cubre area del solicitante)
+    await sbInsert('turnos', { empleado_id: ic.receptor_id, fecha: ic.fecha_receptor, tipo: ic.turno_solicitante, area_id: ic.area_receptor_id, editado_manualmente: true, notas: 'Intercambio' });
+
+    await sbUpdate('intercambios', id, { estado: 'aceptado', confirmado_receptor: true });
+
+    // Actualizar turnosEditados local
+    state.turnosEditados.push({ empleado_id: ic.solicitante_id, fecha: ic.fecha_solicitante, tipo: ic.turno_receptor, editado_manualmente: true });
+    state.turnosEditados.push({ empleado_id: ic.receptor_id, fecha: ic.fecha_receptor, tipo: ic.turno_solicitante, editado_manualmente: true });
+
+    showToast('Intercambio aceptado y calendario actualizado', 'success');
+    renderMisSolicitudes();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function rechazarIntercambioEmp(id) {
+  try {
+    await sbUpdate('intercambios', id, { estado: 'rechazado' });
+    showToast('Intercambio rechazado');
+    renderMisSolicitudes();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
 
 // =====================================================================
 // MODALS
