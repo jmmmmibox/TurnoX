@@ -1386,13 +1386,8 @@ function renderDashboard() {
   const noche = empTurnos.filter(et => et.turno === 'N');
   const refuerzo = empTurnos.filter(et => et.turno === 'R');
 
-  // Stats
-  let html = '<div class="stats-grid">';
-  html += statCard('Empleados', total, trabajando.length + ' trabajando hoy' + (enBaja.length > 0 ? ' · ' + enBaja.length + ' baja/ausencia' : ''), '#DBEAFE', '#2563EB');
-  html += statCard('Mañana', manana.length, '06:00 – 14:00', '#DBEAFE', '#1D4ED8');
-  html += statCard('Tarde', tarde.length, '14:00 – 22:00', '#FEF3C7', '#D97706');
-  html += statCard('Noche', noche.length, '22:00 – 06:00', '#EDE9FE', '#7C3AED');
-  html += '</div>';
+  // Alerta de ausentes
+  let html = '';
 
   // Empleados de baja
   if (enBaja.length > 0) {
