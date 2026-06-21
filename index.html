@@ -2028,23 +2028,48 @@ async function renderIntercambios() {
 // =====================================================================
 async function renderAusencias() {
   let ausencias = [];
-  try { ausencias = await sbQuery('ausencias', { select: '*', order: 'fecha_inicio.desc', limit: 30 }); } catch (e) {}
+  try { ausencias = await sbQuery('ausencias', { select: '*', order: 'fecha_inicio.desc', limit: 50 }); } catch (e) {}
 
-  let html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px">';
+  // Tipos configurables (stored in state, editable)
+  if (!state.tiposAusencia) state.tiposAusencia = ['Baja médica', 'Licencia', 'Ausencia justificada', 'Ausencia injustificada', 'Permiso retribuido', 'Accidente laboral'];
+  if (!state.tiposCobertura) state.tiposCobertura = ['Equipo de refuerzo', 'Polivalente', 'Modo 12 horas', 'Horas extra compañero', 'Sin cobertura'];
+
+  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">';
   html += '<h2 style="font-size:15px;font-weight:600">Ausencias y Coberturas</h2>';
-  html += '<button class="btn btn-blue" onclick="modalNuevaAusencia()">Registrar ausencia</button></div>';
-  html += '<div class="card"><div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
-  html += '<th>Empleado</th><th>Tipo</th><th>Desde</th><th>Hasta</th><th>Cobertura</th></tr></thead><tbody>';
-  if (ausencias.length === 0) {
-    html += '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin ausencias registradas</td></tr>';
+  html += '<div style="display:flex;gap:8px">';
+  html += '<button class="btn btn-outline btn-sm" onclick="modalConfigTiposAusencia()">Configurar tipos</button>';
+  html += '<button class="btn btn-blue" onclick="modalNuevaAusencia()">+ Registrar ausencia</button>';
+  html += '</div></div>';
+
+  // Resumen
+  var activas = ausencias.filter(function(a) { return a.fecha_fin >= todayStr(); });
+  if (activas.length > 0) {
+    html += '<div class="alert alert-warning" style="margin-bottom:16px"><span><strong>' + activas.length + ' ausencia' + (activas.length > 1 ? 's' : '') + ' activa' + (activas.length > 1 ? 's' : '') + '</strong></span></div>';
   }
-  ausencias.forEach(a => {
-    const emp = state.empleados.find(e => e.id === a.empleado_id);
-    html += '<tr><td style="font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</td>';
-    html += '<td><span class="status-badge ' + (a.tipo === 'baja' ? 'closed' : 'pending') + '">' + a.tipo + '</span></td>';
-    html += '<td>' + formatDateES(a.fecha_inicio) + '</td>';
-    html += '<td>' + formatDateES(a.fecha_fin) + '</td>';
-    html += '<td style="font-size:12px">' + (a.modo_12h ? 'Modo 12h' : a.cobertura_tipo || '—') + '</td></tr>';
+
+  html += '<div class="card"><div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
+  html += '<th>Empleado</th><th>Letra</th><th>Tipo</th><th>Desde</th><th>Hasta</th><th>Días</th><th>Cobertura</th><th></th>';
+  html += '</tr></thead><tbody>';
+  if (ausencias.length === 0) {
+    html += '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Sin ausencias registradas</td></tr>';
+  }
+  ausencias.forEach(function(a) {
+    var emp = state.empleados.find(function(e) { return e.id === a.empleado_id; });
+    var letr = emp ? getLetra(emp.letra_id) : null;
+    var diasAus = Math.round((new Date(a.fecha_fin + 'T12:00:00') - new Date(a.fecha_inicio + 'T12:00:00')) / 86400000) + 1;
+    var activa = a.fecha_fin >= todayStr() && a.fecha_inicio <= todayStr();
+    html += '<tr style="' + (activa ? 'background:#FEF2F2;' : '') + '">';
+    html += '<td style="font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</td>';
+    html += '<td>' + (letr ? '<span class="letra-badge" style="background:' + letr.color + '22;color:' + letr.color + '">' + letr.nombre + '</span>' : '?') + '</td>';
+    html += '<td><span class="status-badge ' + (a.tipo.includes('Baja') || a.tipo === 'baja' ? 'closed' : 'pending') + '">' + a.tipo + '</span></td>';
+    html += '<td style="font-size:12px">' + formatDateES(a.fecha_inicio) + '</td>';
+    html += '<td style="font-size:12px">' + formatDateES(a.fecha_fin) + '</td>';
+    html += '<td style="font-weight:600">' + diasAus + '</td>';
+    html += '<td style="font-size:12px">' + (a.cobertura_tipo || '—') + '</td>';
+    html += '<td><div style="display:flex;gap:4px">';
+    html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarAusencia(\'' + a.id + '\')">✎</button>';
+    html += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarAusencia(\'' + a.id + '\',\'' + a.empleado_id + '\',\'' + a.fecha_inicio + '\',\'' + a.fecha_fin + '\')">✕</button>';
+    html += '</div></td></tr>';
   });
   html += '</tbody></table></div></div>';
   document.getElementById('page-ausencias').innerHTML = html;
@@ -2993,39 +3018,149 @@ async function crearFestivo() {
 }
 
 function modalNuevaAusencia() {
-  let body = '<div class="form-group"><label class="form-label">Empleado</label><select class="form-input" id="na-emp">';
-  state.empleados.forEach(e => {
-    const l = getLetra(e.letra_id);
+  var body = '<div class="form-group"><label class="form-label">Empleado</label><select class="form-input" id="na-emp">';
+  state.empleados.forEach(function(e) {
+    var l = getLetra(e.letra_id);
     body += '<option value="' + e.id + '">' + e.nombre + ' ' + e.apellidos + ' (' + (l ? l.nombre : '?') + ')</option>';
   });
   body += '</select></div>';
-  body += '<div class="grid-2"><div class="form-group"><label class="form-label">Tipo</label><select class="form-input" id="na-tipo">';
-  body += '<option value="baja">Baja médica</option><option value="licencia">Licencia</option><option value="ausencia">Ausencia</option></select></div>';
+  body += '<div class="grid-2"><div class="form-group"><label class="form-label">Tipo de ausencia</label><select class="form-input" id="na-tipo">';
+  state.tiposAusencia.forEach(function(t) { body += '<option value="' + t + '">' + t + '</option>'; });
+  body += '</select></div>';
   body += '<div class="form-group"><label class="form-label">Cobertura</label><select class="form-input" id="na-cob">';
-  body += '<option value="refuerzo">Refuerzo</option><option value="polivalente">Polivalente</option><option value="12h">Modo 12h</option><option value="sin_cobertura">Sin cobertura</option></select></div></div>';
+  state.tiposCobertura.forEach(function(t) { body += '<option value="' + t + '">' + t + '</option>'; });
+  body += '</select></div></div>';
   body += '<div class="grid-2"><div class="form-group"><label class="form-label">Desde</label><input type="date" class="form-input" id="na-inicio"></div>';
   body += '<div class="form-group"><label class="form-label">Hasta</label><input type="date" class="form-input" id="na-fin"></div></div>';
+  body += '<div class="form-group"><label class="form-label">Motivo / Notas</label><textarea class="form-input" id="na-notas" rows="2"></textarea></div>';
   openModal('Registrar ausencia', body, '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button><button class="btn btn-blue" onclick="crearAusencia()">Registrar</button>');
 }
 
 async function crearAusencia() {
-  const inicio = document.getElementById('na-inicio').value;
-  const fin = document.getElementById('na-fin').value;
+  var inicio = document.getElementById('na-inicio').value;
+  var fin = document.getElementById('na-fin').value;
+  var empId = document.getElementById('na-emp').value;
+  var tipo = document.getElementById('na-tipo').value;
   if (!inicio || !fin) { showToast('Indica las fechas', 'error'); return; }
   try {
     await sbInsert('ausencias', {
-      empleado_id: document.getElementById('na-emp').value,
-      tipo: document.getElementById('na-tipo').value,
-      fecha_inicio: inicio,
-      fecha_fin: fin,
+      empleado_id: empId, tipo: tipo, fecha_inicio: inicio, fecha_fin: fin,
       cobertura_tipo: document.getElementById('na-cob').value,
-      modo_12h: document.getElementById('na-cob').value === '12h',
+      motivo: document.getElementById('na-notas').value,
+      modo_12h: document.getElementById('na-cob').value === 'Modo 12 horas',
     });
+    // Crear turnos B/L en el calendario
+    var turnoTipo = tipo.includes('Baja') || tipo.includes('Accidente') ? 'B' : 'L';
+    var d = new Date(inicio + 'T12:00:00');
+    var finD = new Date(fin + 'T12:00:00');
+    while (d <= finD) {
+      var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      try {
+        var ex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + ds] });
+        if (ex && ex.length > 0) await sbUpdate('turnos', ex[0].id, { tipo: turnoTipo, editado_manualmente: true, notas: tipo });
+        else await sbInsert('turnos', { empleado_id: empId, fecha: ds, tipo: turnoTipo, editado_manualmente: true, notas: tipo });
+      } catch(e2) {}
+      d.setDate(d.getDate() + 1);
+    }
+    try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
     closeModal();
     renderAusencias();
-    showToast('Ausencia registrada', 'success');
+    showToast('Ausencia registrada y reflejada en calendario', 'success');
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
+
+function modalEditarAusencia(ausId) {
+  sbQuery('ausencias', { select: '*', filters: ['id=eq.' + ausId] }).then(function(rows) {
+    if (!rows || rows.length === 0) return;
+    var a = rows[0];
+    var emp = state.empleados.find(function(e) { return e.id === a.empleado_id; });
+    var body = '<div style="margin-bottom:12px;font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</div>';
+    body += '<div class="grid-2"><div class="form-group"><label class="form-label">Tipo</label><select class="form-input" id="ea-tipo">';
+    state.tiposAusencia.forEach(function(t) { body += '<option value="' + t + '"' + (a.tipo === t ? ' selected' : '') + '>' + t + '</option>'; });
+    body += '</select></div>';
+    body += '<div class="form-group"><label class="form-label">Cobertura</label><select class="form-input" id="ea-cob">';
+    state.tiposCobertura.forEach(function(t) { body += '<option value="' + t + '"' + (a.cobertura_tipo === t ? ' selected' : '') + '>' + t + '</option>'; });
+    body += '</select></div></div>';
+    body += '<div class="grid-2"><div class="form-group"><label class="form-label">Desde</label><input type="date" class="form-input" id="ea-inicio" value="' + a.fecha_inicio + '"></div>';
+    body += '<div class="form-group"><label class="form-label">Hasta</label><input type="date" class="form-input" id="ea-fin" value="' + a.fecha_fin + '"></div></div>';
+    body += '<div class="form-group"><label class="form-label">Motivo</label><textarea class="form-input" id="ea-notas" rows="2">' + (a.motivo || '') + '</textarea></div>';
+    openModal('Editar ausencia', body,
+      '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+      '<button class="btn btn-blue" onclick="guardarAusenciaEdit(\'' + ausId + '\',\'' + a.empleado_id + '\')">Guardar</button>');
+  });
+}
+
+async function guardarAusenciaEdit(ausId, empId) {
+  var tipo = document.getElementById('ea-tipo').value;
+  var inicio = document.getElementById('ea-inicio').value;
+  var fin = document.getElementById('ea-fin').value;
+  try {
+    await sbUpdate('ausencias', ausId, {
+      tipo: tipo, cobertura_tipo: document.getElementById('ea-cob').value,
+      fecha_inicio: inicio, fecha_fin: fin, motivo: document.getElementById('ea-notas').value,
+    });
+    var turnoTipo = tipo.includes('Baja') || tipo.includes('Accidente') ? 'B' : 'L';
+    var d = new Date(inicio + 'T12:00:00');
+    var finD = new Date(fin + 'T12:00:00');
+    while (d <= finD) {
+      var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      try {
+        var ex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + ds] });
+        if (ex && ex.length > 0) await sbUpdate('turnos', ex[0].id, { tipo: turnoTipo, editado_manualmente: true });
+        else await sbInsert('turnos', { empleado_id: empId, fecha: ds, tipo: turnoTipo, editado_manualmente: true });
+      } catch(e2) {}
+      d.setDate(d.getDate() + 1);
+    }
+    try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
+    closeModal();
+    renderAusencias();
+    showToast('Ausencia actualizada', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function eliminarAusencia(ausId, empId, inicio, fin) {
+  if (!confirm('Eliminar esta ausencia? Los turnos del calendario se restauraran.')) return;
+  try {
+    await sbDelete('ausencias', ausId);
+    var d = new Date(inicio + 'T12:00:00');
+    var finD = new Date(fin + 'T12:00:00');
+    while (d <= finD) {
+      var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      try {
+        var ex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + ds, 'editado_manualmente=eq.true'] });
+        if (ex && ex.length > 0 && (ex[0].tipo === 'B' || ex[0].tipo === 'L')) await sbDelete('turnos', ex[0].id);
+      } catch(e2) {}
+      d.setDate(d.getDate() + 1);
+    }
+    try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
+    renderAusencias();
+    showToast('Ausencia eliminada y calendario restaurado', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalConfigTiposAusencia() {
+  var body = '<h4 style="font-size:13px;font-weight:600;margin-bottom:8px">Tipos de ausencia</h4>';
+  state.tiposAusencia.forEach(function(t, i) {
+    body += '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="flex:1;font-size:13px">' + t + '</span>';
+    body += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="removeTipoAusencia(' + i + ')">x</button></div>';
+  });
+  body += '<div style="display:flex;gap:6px;margin-top:6px"><input class="form-input" id="cfg-nuevo-tipo" placeholder="Nuevo tipo..." style="flex:1;padding:5px 8px;font-size:12px">';
+  body += '<button class="btn btn-sm btn-outline" onclick="addTipoAusencia()">+</button></div>';
+  body += '<h4 style="font-size:13px;font-weight:600;margin-top:16px;margin-bottom:8px">Tipos de cobertura</h4>';
+  state.tiposCobertura.forEach(function(t, i) {
+    body += '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="flex:1;font-size:13px">' + t + '</span>';
+    body += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="removeTipoCobertura(' + i + ')">x</button></div>';
+  });
+  body += '<div style="display:flex;gap:6px;margin-top:6px"><input class="form-input" id="cfg-nuevo-cob" placeholder="Nueva cobertura..." style="flex:1;padding:5px 8px;font-size:12px">';
+  body += '<button class="btn btn-sm btn-outline" onclick="addTipoCobertura()">+</button></div>';
+  openModal('Configurar tipos', body, '<button class="btn btn-blue" onclick="closeModal()">Cerrar</button>');
+}
+function addTipoAusencia() { var v = document.getElementById('cfg-nuevo-tipo').value.trim(); if (!v) return; state.tiposAusencia.push(v); closeModal(); modalConfigTiposAusencia(); }
+function removeTipoAusencia(i) { state.tiposAusencia.splice(i, 1); closeModal(); modalConfigTiposAusencia(); }
+function addTipoCobertura() { var v = document.getElementById('cfg-nuevo-cob').value.trim(); if (!v) return; state.tiposCobertura.push(v); closeModal(); modalConfigTiposAusencia(); }
+function removeTipoCobertura(i) { state.tiposCobertura.splice(i, 1); closeModal(); modalConfigTiposAusencia(); }
+
+
 
 function editarTurno(empId, fecha, turnoActual) {
   if (state.user.tipo !== 'gestor') return;
@@ -3101,7 +3236,8 @@ function modalEditarEmpleado(empId) {
 }
 
 async function guardarEmpleado(empId) {
-  const data = {
+  var passEl = document.getElementById('ee-pass');
+  var data = {
     nombre: document.getElementById('ee-nombre').value.trim(),
     apellidos: document.getElementById('ee-apellidos').value.trim(),
     username: document.getElementById('ee-user').value.trim(),
@@ -3110,8 +3246,9 @@ async function guardarEmpleado(empId) {
     telefono: document.getElementById('ee-tel').value.trim() || null,
     notas: document.getElementById('ee-notas').value.trim() || null,
   };
-  const pass = document.getElementById('ee-pass').value.trim();
-  if (pass.length > 0) data.password_hash = pass;
+  if (passEl && passEl.value && passEl.value.trim().length > 0) {
+    data.password_hash = passEl.value.trim();
+  }
   if (!data.nombre || !data.apellidos || !data.username) { showToast('Campos obligatorios', 'error'); return; }
 
   try {
