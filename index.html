@@ -2365,75 +2365,92 @@ async function renderMisSolicitudes() {
       html += '<div class="alert alert-info"><span>Ya has solicitado vacaciones para esta ronda: <strong>' + formatDateES(miSolicitudActual.fecha_inicio) + ' – ' + formatDateES(miSolicitudActual.fecha_fin) + '</strong> (' + miSolicitudActual.dias_solicitados + ' días) — ' + miSolicitudActual.estado + '</span></div>';
     }
 
-    // Calendario visual de mi área (12 meses)
-    html += '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Calendario de tu área — ' + (getArea(miAreaId) ? getArea(miAreaId).nombre : '?') + '</div>';
-    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:11px;color:var(--text3)">';
-    html += '<span><span style="display:inline-block;width:10px;height:10px;background:#DBEAFE;border-radius:2px"></span> Tu turno</span>';
-    html += '<span><span style="display:inline-block;width:10px;height:10px;background:#FCE7F3;border-radius:2px"></span> Vacaciones otro</span>';
-    html += '<span><span style="display:inline-block;width:10px;height:10px;background:#FEF3C7;border-radius:2px"></span> Buffer 2 días</span>';
-    html += '<span><span style="display:inline-block;width:10px;height:10px;background:#DCFCE7;border-radius:2px"></span> Disponible</span>';
-    html += '</div>';
+    // Calendario visual tipo calendario oficial pero solo mi área
+    if (!state.vacCalMes) state.vacCalMes = new Date().getMonth();
+    if (!state.vacCalYear) state.vacCalYear = new Date().getFullYear();
+    var vcMes = state.vacCalMes;
+    var vcYear = state.vacCalYear;
+    var vcDiasMes = new Date(vcYear, vcMes + 1, 0).getDate();
+    var vcNombresMes = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
-    // Empleados de mi área
+    // Empleados de mi área ordenados por letra
     var empsArea = state.empleados.filter(function(e) { return e.area_principal_id === miAreaId; }).sort(function(a, b) {
       var la = getLetra(a.letra_id); var lb = getLetra(b.letra_id);
       return (la ? la.nombre : 'Z').localeCompare(lb ? lb.nombre : 'Z');
     });
 
-    // Render 12 meses
-    var mesesNombres = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">';
-    for (var m = 0; m < 12; m++) {
-      var diasEnMes = new Date(2026, m + 1, 0).getDate();
-      html += '<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">';
-      html += '<div style="background:var(--bg);padding:4px 8px;font-size:11px;font-weight:700;text-align:center">' + mesesNombres[m] + ' 2026</div>';
-      html += '<div style="padding:4px">';
-      // Header días semana
-      html += '<div style="display:grid;grid-template-columns:60px repeat(31,1fr);font-size:8px;color:var(--text3)">';
-      html += '<div style="padding:1px 2px;font-weight:600">Empleado</div>';
-      for (var dd = 1; dd <= diasEnMes; dd++) {
-        var tmpD = new Date(2026, m, dd);
-        var dayL = ['D','L','M','X','J','V','S'][tmpD.getDay()];
-        html += '<div style="text-align:center;' + (tmpD.getDay() === 0 || tmpD.getDay() === 6 ? 'color:var(--danger);' : '') + '">' + dd + '</div>';
-      }
-      for (var dd2 = diasEnMes + 1; dd2 <= 31; dd2++) html += '<div></div>';
-      html += '</div>';
-      // Filas empleados
-      empsArea.forEach(function(empA) {
-        var letrA = getLetra(empA.letra_id);
-        html += '<div style="display:grid;grid-template-columns:60px repeat(31,1fr);font-size:8px;border-top:1px solid #f0f0f0">';
-        html += '<div style="padding:1px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500" title="' + empA.nombre + ' ' + empA.apellidos + '">';
-        html += '<span style="color:' + (letrA ? letrA.color : '#999') + '">' + (letrA ? letrA.nombre : '?') + '</span> ' + empA.nombre.substring(0,3) + '</div>';
-        for (var dd3 = 1; dd3 <= diasEnMes; dd3++) {
-          var ds3 = '2026-' + String(m + 1).padStart(2, '0') + '-' + String(dd3).padStart(2, '0');
-          var t3 = calcTurno(empA, ds3);
-          var bgColor = 'transparent';
-          if (t3 === 'V') bgColor = '#FCE7F3';
-          else if (diasBloqueados[ds3] === 'ocupado' && empA.id !== emp.id) bgColor = '#FCE7F3';
-          else if (diasBloqueados[ds3] === 'buffer' && empA.id !== emp.id) bgColor = '#FEF3C7';
-          else if (empA.id === emp.id) {
-            if (t3 === 'M' || t3 === 'T' || t3 === 'N' || t3 === 'R') bgColor = '#DBEAFE';
-            else if (t3 === 'D') bgColor = '#F1F5F9';
-          }
-          var cellStyle = 'text-align:center;background:' + bgColor + ';padding:1px 0;';
-          var tColor = {'M':'#1D4ED8','T':'#92400E','N':'#4338CA','D':'#94A3B8','R':'#166534','V':'#9D174D'}[t3] || '#ccc';
-          html += '<div style="' + cellStyle + 'color:' + tColor + '">' + (t3 || '') + '</div>';
-        }
-        for (var dd4 = diasEnMes + 1; dd4 <= 31; dd4++) html += '<div></div>';
-        html += '</div>';
+    var dayNames = ['D','L','M','X','J','V','S'];
+    var vcDias = [];
+    for (var vd = 1; vd <= vcDiasMes; vd++) {
+      var vdd = new Date(vcYear, vcMes, vd);
+      var vds = vcYear + '-' + String(vcMes + 1).padStart(2, '0') + '-' + String(vd).padStart(2, '0');
+      vcDias.push({
+        num: vd, ds: vds,
+        isWeekend: vdd.getDay() === 0 || vdd.getDay() === 6,
+        isFestivo: state.festivos.some(function(f) { return f.fecha === vds; }),
+        dayName: dayNames[vdd.getDay()]
       });
-      html += '</div></div>';
     }
+
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">';
+    html += '<button class="cal-nav-btn" onclick="state.vacCalMes--;if(state.vacCalMes<0){state.vacCalMes=11;state.vacCalYear--;}renderMisSolicitudes()"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><polyline points=\"15 18 9 12 15 6\"/></svg></button>';
+    html += '<span class="cal-month-label">' + vcNombresMes[vcMes] + ' ' + vcYear + '</span>';
+    html += '<button class="cal-nav-btn" onclick="state.vacCalMes++;if(state.vacCalMes>11){state.vacCalMes=0;state.vacCalYear++;}renderMisSolicitudes()"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><polyline points=\"9 18 15 12 9 6\"/></svg></button>';
+    html += '<span style="font-size:12px;color:var(--text2);margin-left:8px">' + (getArea(miAreaId) ? getArea(miAreaId).nombre : '') + '</span>';
     html += '</div>';
 
-    // Formulario de solicitud
+    // Leyenda
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-size:11px">';
+    html += '<span><span class=\"turno-badge M\" style=\"width:18px;height:18px;font-size:9px\">M</span> Mañana</span>';
+    html += '<span><span class=\"turno-badge T\" style=\"width:18px;height:18px;font-size:9px\">T</span> Tarde</span>';
+    html += '<span><span class=\"turno-badge N\" style=\"width:18px;height:18px;font-size:9px\">N</span> Noche</span>';
+    html += '<span><span class=\"turno-badge D\" style=\"width:18px;height:18px;font-size:9px\">D</span> Descanso</span>';
+    html += '<span><span class=\"turno-badge R\" style=\"width:18px;height:18px;font-size:9px\">R</span> Refuerzo</span>';
+    html += '<span><span class=\"turno-badge V\" style=\"width:18px;height:18px;font-size:9px\">V</span> Vacaciones</span>';
+    html += '</div>';
+
+    // Tabla estilo calendario oficial
+    html += '<div class="cal-table-wrap"><table class="cal-table"><thead><tr>';
+    html += '<th style=\"text-align:left;padding:8px 12px;min-width:150px;position:sticky;left:0;background:white;z-index:10\">Empleado</th>';
+    vcDias.forEach(function(d) {
+      var bloq = diasBloqueados[d.ds];
+      var thClass = 'day-header' + (d.isWeekend ? ' weekend' : '') + (d.isFestivo ? ' festivo' : '');
+      var thStyle = '';
+      if (bloq === 'ocupado') thStyle = 'background:#FCE7F3;';
+      else if (bloq === 'buffer') thStyle = 'background:#FEF9C3;';
+      html += '<th class=\"' + thClass + '\" style=\"' + thStyle + '\">';
+      html += '<div>' + d.dayName + '</div><div>' + d.num + '</div></th>';
+    });
+    html += '</tr></thead><tbody>';
+
+    empsArea.forEach(function(empA) {
+      var letrA = getLetra(empA.letra_id);
+      var esYo = empA.id === emp.id;
+      html += '<tr style=\"' + (esYo ? 'background:#EFF6FF;' : '') + '\">';
+      html += '<td class=\"emp-info\" style=\"' + (esYo ? 'background:#EFF6FF;font-weight:700;' : '') + '\">';
+      html += '<div class=\"emp-cell-name\">' + (esYo ? '→ ' : '') + empA.nombre + ' ' + empA.apellidos + '</div>';
+      html += '<div class=\"emp-cell-sub\"><span style=\"color:' + (letrA ? letrA.color : '#999') + '\">' + (letrA ? letrA.nombre : '?') + '</span></div></td>';
+      vcDias.forEach(function(d) {
+        var t = calcTurno(empA, d.ds);
+        var tdStyle = '';
+        if (esYo && d.ds === todayStr()) tdStyle = 'background:#DBEAFE;';
+        else if (!esYo && t === 'V') tdStyle = 'background:#FCE7F3;';
+        else if (!esYo && diasBloqueados[d.ds] === 'buffer') tdStyle = 'background:#FFFBEB;';
+        html += '<td style=\"' + tdStyle + '\"><span class=\"turno-cell ' + (t || 'empty') + '\">' + (t || '·') + '</span></td>';
+      });
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+
+    // Formulario de solicitud debajo del calendario
     if (!miSolicitudActual) {
-      html += '<div style="margin-top:16px;padding:16px;background:var(--bg);border-radius:8px">';
-      html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Solicitar ' + rondaActiva.dias + ' días ' + (rondaActiva.numero_ronda <= 2 ? 'consecutivos' : 'sueltos') + '</div>';
-      html += '<div class="grid-2" style="margin-bottom:12px">';
-      html += '<div class="form-group"><label class="form-label">Fecha inicio</label><input type="date" class="form-input" id="sv-inicio"></div>';
-      html += '<div class="form-group"><label class="form-label">Fecha fin</label><input type="date" class="form-input" id="sv-fin"></div></div>';
-      html += '<button class="btn btn-blue" onclick="enviarSolicitudVacaciones(\'' + rondaActiva.id + '\',' + rondaActiva.dias + ',' + rondaActiva.numero_ronda + ')">Solicitar vacaciones</button>';
+      html += '<div style=\"margin-top:16px;padding:16px;background:var(--bg);border-radius:8px\">';
+      html += '<div style=\"font-size:13px;font-weight:600;margin-bottom:8px\">Solicitar ' + rondaActiva.dias + ' días ' + (rondaActiva.numero_ronda <= 2 ? 'consecutivos' : 'sueltos') + '</div>';
+      html += '<div class=\"grid-2\" style=\"margin-bottom:12px\">';
+      html += '<div class=\"form-group\"><label class=\"form-label\">Fecha inicio</label><input type=\"date\" class=\"form-input\" id=\"sv-inicio\"></div>';
+      html += '<div class=\"form-group\"><label class=\"form-label\">Fecha fin</label><input type=\"date\" class=\"form-input\" id=\"sv-fin\"></div></div>';
+      html += '<button class=\"btn btn-blue\" onclick=\"enviarSolicitudVacaciones(\'' + rondaActiva.id + '\',' + rondaActiva.dias + ',' + rondaActiva.numero_ronda + ')\">Solicitar vacaciones</button>';
       html += '</div>';
     }
 
