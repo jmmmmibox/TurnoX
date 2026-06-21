@@ -1576,10 +1576,60 @@ function renderCalendario() {
   html += '</tr></thead><tbody>';
 
   Object.values(porLetra).forEach(({ letra, emps: le }) => {
-    html += '<tr><td colspan="' + (diasMes + 1) + '" style="background:#F8FAFC;padding:4px 12px;font-size:11px;font-weight:700;color:' + letra.color + ';border-bottom:1px solid var(--border)">Letra ' + letra.nombre + '</td></tr>';
+    // Detectar si esta letra está en refuerzo este mes
+    const primerDia = year + '-' + String(mes + 1).padStart(2, '0') + '-01';
+    const ultimoDia = year + '-' + String(mes + 1).padStart(2, '0') + '-' + String(diasMes).padStart(2, '0');
+    const cicloRefuerzo = state.ciclosConfig.find(c =>
+      c.letra_id === letra.id && c.tipo === 'refuerzo' &&
+      c.fecha_inicio <= ultimoDia && c.fecha_fin >= primerDia
+    );
+    const diasObjetivo = cicloRefuerzo ? cicloRefuerzo.dias_trabajo_mes : null;
+
+    let letraHeader = 'Letra ' + letra.nombre;
+    if (cicloRefuerzo) {
+      letraHeader += ' <span style="font-size:10px;font-weight:500;color:var(--turno-R-text);background:var(--turno-R);padding:1px 6px;border-radius:4px;margin-left:4px">REFUERZO</span>';
+      if (diasObjetivo) {
+        letraHeader += ' <span style="font-size:10px;color:var(--text3);margin-left:4px">objetivo: ' + diasObjetivo + ' días/mes</span>';
+        letraHeader += ' <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:1px 4px;color:var(--primary-light)" onclick="editarDiasObjetivo(\'' + cicloRefuerzo.id + '\',' + (diasObjetivo||'') + ')">✎</button>';
+      } else {
+        letraHeader += ' <button class="btn btn-sm btn-ghost" style="font-size:10px;padding:1px 6px;color:var(--warning)" onclick="editarDiasObjetivo(\'' + cicloRefuerzo.id + '\',\'\')">+ Definir días/mes</button>';
+      }
+    }
+
+    html += '<tr><td colspan="' + (diasMes + 1) + '" style="background:#F8FAFC;padding:4px 12px;font-size:11px;font-weight:700;color:' + letra.color + ';border-bottom:1px solid var(--border)">' + letraHeader + '</td></tr>';
     le.forEach(emp => {
       const area = getArea(emp.area_principal_id);
-      html += '<tr><td class="emp-info"><div class="emp-cell-name">' + emp.nombre + ' ' + emp.apellidos + '</div><div class="emp-cell-sub">' + (area ? area.nombre : '—') + '</div></td>';
+
+      // Contar días trabajados este mes (todo lo que no sea D)
+      let diasTrabajados = 0;
+      if (cicloRefuerzo) {
+        dias.forEach(d => {
+          const t = calcTurno(emp, d.ds);
+          if (t && t !== 'D' && t !== 'V') diasTrabajados++;
+        });
+      }
+
+      // Celda de info del empleado
+      let empInfoHtml = '<div class="emp-cell-name">' + emp.nombre + ' ' + emp.apellidos + '</div>';
+      empInfoHtml += '<div class="emp-cell-sub">' + (area ? area.nombre : '—');
+      if (cicloRefuerzo) {
+        empInfoHtml += ' · <strong>' + diasTrabajados + '</strong>';
+        if (diasObjetivo) {
+          const diff = diasTrabajados - diasObjetivo;
+          if (diff === 0) {
+            empInfoHtml += '/' + diasObjetivo + ' <span style="color:#166534;font-weight:700">✓</span>';
+          } else if (diff > 0) {
+            empInfoHtml += '/' + diasObjetivo + ' <span style="color:#991B1B;font-weight:700">+' + diff + '</span>';
+          } else {
+            empInfoHtml += '/' + diasObjetivo + ' <span style="color:#D97706;font-weight:700">' + diff + '</span>';
+          }
+        } else {
+          empInfoHtml += ' días';
+        }
+      }
+      empInfoHtml += '</div>';
+
+      html += '<tr><td class="emp-info">' + empInfoHtml + '</td>';
       dias.forEach(d => {
         const t = calcTurno(emp, d.ds);
         const isToday = d.ds === todayStr();
@@ -1607,6 +1657,28 @@ function renderCalendario() {
 
 function calPrev() { state.calMes--; if (state.calMes < 0) { state.calMes = 11; state.calYear--; } renderCalendario(); }
 function calNext() { state.calMes++; if (state.calMes > 11) { state.calMes = 0; state.calYear++; } renderCalendario(); }
+
+function editarDiasObjetivo(cicloId, valorActual) {
+  let body = '<div class="form-group"><label class="form-label">Días de trabajo por mes</label>';
+  body += '<input type="number" class="form-input" id="edo-dias" value="' + (valorActual || '') + '" placeholder="Ej: 18" min="0" max="31"></div>';
+  body += '<p style="font-size:12px;color:var(--text2);margin-top:8px">Se comparará con los días realmente trabajados de cada empleado en el mes visible del calendario.</p>';
+  openModal('Días objetivo de refuerzo', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="guardarDiasObjetivo(\'' + cicloId + '\')">Guardar</button>');
+}
+
+async function guardarDiasObjetivo(cicloId) {
+  const val = document.getElementById('edo-dias').value;
+  try {
+    await sbUpdate('ciclos_config', cicloId, { dias_trabajo_mes: val ? parseInt(val) : null });
+    // Actualizar state local
+    const ciclo = state.ciclosConfig.find(c => c.id === cicloId);
+    if (ciclo) ciclo.dias_trabajo_mes = val ? parseInt(val) : null;
+    closeModal();
+    showToast('Días objetivo guardados', 'success');
+    renderCalendario();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
 
 function mostrarDescubierto(fechaStr) {
   let body = '';
@@ -1874,7 +1946,7 @@ function renderConfiguracion() {
       html += '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--bg)">';
       html += '<th style="padding:6px 10px;text-align:left">#</th><th style="padding:6px 10px;text-align:left">Tipo</th>';
       html += '<th style="padding:6px 10px;text-align:left">Inicio</th><th style="padding:6px 10px;text-align:left">Fin</th>';
-      html += '<th style="padding:6px 10px;text-align:left">Turno ini.</th><th style="padding:6px 10px;text-align:left"></th></tr></thead><tbody>';
+      html += '<th style="padding:6px 10px;text-align:left">Turno ini.</th><th style="padding:6px 10px;text-align:left">Días/mes</th><th style="padding:6px 10px;text-align:left"></th></tr></thead><tbody>';
       ciclos.forEach(c => {
         html += '<tr style="border-bottom:1px solid var(--border)">';
         html += '<td style="padding:6px 10px">' + c.orden + '</td>';
@@ -1888,6 +1960,11 @@ function renderConfiguracion() {
           html += '<select data-ciclo-id="' + c.id + '" data-field="turno_inicial" class="form-input" style="padding:3px 6px;font-size:11px;width:55px">';
           ['M','T','N','D'].forEach(t => { html += '<option' + (c.turno_inicial === t ? ' selected' : '') + '>' + t + '</option>'; });
           html += '</select>';
+        } else { html += '<span style="color:var(--text3)">—</span>'; }
+        html += '</td>';
+        html += '<td style="padding:6px 10px">';
+        if (c.tipo === 'refuerzo') {
+          html += '<input type="number" value="' + (c.dias_trabajo_mes || '') + '" data-ciclo-id="' + c.id + '" data-field="dias_trabajo_mes" class="form-input" style="padding:3px 6px;font-size:11px;width:55px" placeholder="—">';
         } else { html += '<span style="color:var(--text3)">—</span>'; }
         html += '</td>';
         html += '<td style="padding:6px 10px"><button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarCiclo(\'' + c.id + '\')">✕</button></td></tr>';
@@ -2359,7 +2436,7 @@ function modalNuevoCiclo(letraId, letraNombre) {
 
   let body = '<div class="form-group"><label class="form-label">Letra</label><input class="form-input" value="Letra ' + letraNombre + '" disabled></div>';
   body += '<div class="grid-2">';
-  body += '<div class="form-group"><label class="form-label">Tipo</label><select class="form-input" id="nc-tipo" onchange="document.getElementById(\'nc-turno-wrap\').style.display=this.value===\'turno\'?\'block\':\'none\'">';
+  body += '<div class="form-group"><label class="form-label">Tipo</label><select class="form-input" id="nc-tipo" onchange="document.getElementById(\'nc-turno-wrap\').style.display=this.value===\'turno\'?\'block\':\'none\';document.getElementById(\'nc-dias-wrap\').style.display=this.value===\'refuerzo\'?\'block\':\'none\'">';
   body += '<option value="turno">Turno</option><option value="refuerzo">Refuerzo</option></select></div>';
   body += '<div class="form-group"><label class="form-label">Orden</label><input class="form-input" id="nc-orden" type="number" value="' + nuevoOrden + '"></div></div>';
   body += '<div class="grid-2">';
@@ -2367,6 +2444,8 @@ function modalNuevoCiclo(letraId, letraNombre) {
   body += '<div class="form-group"><label class="form-label">Fecha fin</label><input type="date" class="form-input" id="nc-fin"></div></div>';
   body += '<div class="form-group" id="nc-turno-wrap"><label class="form-label">Turno inicial</label><select class="form-input" id="nc-turno">';
   body += '<option value="M">M - Mañana</option><option value="T">T - Tarde</option><option value="N">N - Noche</option></select></div>';
+  body += '<div class="form-group" id="nc-dias-wrap" style="display:none"><label class="form-label">Días trabajo / mes</label>';
+  body += '<input type="number" class="form-input" id="nc-dias" placeholder="Ej: 18"></div>';
 
   openModal('Añadir período — Letra ' + letraNombre, body,
     '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
@@ -2375,6 +2454,7 @@ function modalNuevoCiclo(letraId, letraNombre) {
 
 async function crearCiclo(letraId) {
   const tipo = document.getElementById('nc-tipo').value;
+  const diasVal = document.getElementById('nc-dias').value;
   const data = {
     letra_id: letraId,
     "año": 2026,
@@ -2383,6 +2463,7 @@ async function crearCiclo(letraId) {
     fecha_inicio: document.getElementById('nc-inicio').value,
     fecha_fin: document.getElementById('nc-fin').value,
     turno_inicial: tipo === 'turno' ? document.getElementById('nc-turno').value : null,
+    dias_trabajo_mes: tipo === 'refuerzo' && diasVal ? parseInt(diasVal) : null,
   };
   if (!data.fecha_inicio || !data.fecha_fin) { showToast('Indica las fechas', 'error'); return; }
   try {
