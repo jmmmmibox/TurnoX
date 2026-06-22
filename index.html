@@ -1173,6 +1173,13 @@ async function loginGestor() {
     }
     authToken = r.access_token;
     const nombre = email.split('@')[0];
+    // Ensure gestor exists in gestores table for notifications
+    try {
+      var existG = await sbQuery('gestores', { select: 'id', filters: ['id=eq.' + r.user.id] });
+      if (!existG || existG.length === 0) {
+        await sbInsert('gestores', { id: r.user.id, nombre: nombre, email: email, planta_id: PLANTA_ID, rol: 'admin' });
+      }
+    } catch(eg) { console.log('Gestor row:', eg); }
     enterApp({ tipo: 'gestor', id: r.user.id, nombre: nombre, email: email });
   } catch (e) {
     errEl.textContent = 'Error de conexión';
@@ -1303,7 +1310,7 @@ async function loadAllData() {
       polivalencias: state.polivalencias.length
     });
 
-    // Load notifications
+    // Load notifications - each user has their own
     try {
       if (state.user.tipo === 'empleado') {
         state.notificaciones = await sbQuery('notificaciones', {
@@ -1313,16 +1320,13 @@ async function loadAllData() {
           limit: 30
         });
       } else {
-        // Gestor: cargar notificaciones de solicitudes pendientes
-        var pendVac = await sbQuery('vacaciones_solicitudes', { select: 'id', filters: ['estado=eq.pendiente'] });
-        var pendInt = await sbQuery('intercambios', { select: 'id', filters: ['estado=eq.pendiente'] });
-        state.notificaciones = [];
-        if (pendVac && pendVac.length > 0) {
-          state.notificaciones.push({ titulo: 'Vacaciones pendientes', mensaje: pendVac.length + ' solicitudes de vacaciones por revisar', leida: false, created_at: new Date().toISOString(), tipo: 'vacaciones' });
-        }
-        if (pendInt && pendInt.length > 0) {
-          state.notificaciones.push({ titulo: 'Intercambios pendientes', mensaje: pendInt.length + ' intercambios por revisar', leida: false, created_at: new Date().toISOString(), tipo: 'intercambio' });
-        }
+        // Gestor: load from BD using gestor id
+        state.notificaciones = await sbQuery('notificaciones', {
+          select: '*',
+          filters: ['destinatario_gestor_id=eq.' + state.user.id],
+          order: 'created_at.desc',
+          limit: 30
+        });
       }
     } catch (e) {
       state.notificaciones = [];
@@ -1330,6 +1334,25 @@ async function loadAllData() {
 
     updateNotifBadge();
     updateNavBadges();
+
+    // Start polling for real-time updates
+    if (!state.pollingStarted) {
+      state.pollingStarted = true;
+      setInterval(async function() {
+        try {
+          // Refresh turnos editados
+          state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] });
+          // Refresh notifications
+          if (state.user.tipo === 'empleado') {
+            state.notificaciones = await sbQuery('notificaciones', { select: '*', filters: ['destinatario_empleado_id=eq.' + state.user.id], order: 'created_at.desc', limit: 30 });
+          } else {
+            state.notificaciones = await sbQuery('notificaciones', { select: '*', filters: ['destinatario_gestor_id=eq.' + state.user.id], order: 'created_at.desc', limit: 30 });
+          }
+          updateNotifBadge();
+          updateNavBadges();
+        } catch(ep) {}
+      }, 30000); // Every 30 seconds
+    }
   } catch (e) {
     console.error('Error loading data:', e);
     showToast('Error cargando datos', 'error');
@@ -3037,7 +3060,14 @@ async function enviarIntercambio() {
         titulo: 'Solicitud de intercambio',
         mensaje: (emp ? emp.nombre + ' ' + emp.apellidos : 'Un compañero') + ' te propone un intercambio de turno para el ' + formatDateES(fecha),
       });
-    } catch(en) {}
+    } catch(en1) {}
+    // Notificar al gestor
+    try {
+      var gestores2 = await sbQuery('gestores', { select: 'id', limit: 5 });
+      if (gestores2) { for (var g2 = 0; g2 < gestores2.length; g2++) {
+        await sbInsert('notificaciones', { destinatario_gestor_id: gestores2[g2].id, tipo: 'intercambio', titulo: 'Nuevo intercambio', mensaje: (emp ? emp.nombre + ' ' + emp.apellidos : 'Un empleado') + ' propone intercambio para el ' + formatDateES(fecha) });
+      }}
+    } catch(en2) {}
     closeModal();
     showToast('Intercambio propuesto', 'success');
     renderMisSolicitudes();
@@ -3186,6 +3216,15 @@ async function enviarVacDesdeCalendario(rondaId, diasRonda, numRonda) {
       estado: 'pendiente',
     });
     state.vacDiasSeleccionados = [];
+    // Notificar al gestor
+    try {
+      var gestores = await sbQuery('gestores', { select: 'id', limit: 5 });
+      if (gestores) {
+        for (var g = 0; g < gestores.length; g++) {
+          await sbInsert('notificaciones', { destinatario_gestor_id: gestores[g].id, tipo: 'vacaciones', titulo: 'Nueva solicitud de vacaciones', mensaje: emp.nombre + ' ' + emp.apellidos + ' solicita vacaciones del ' + formatDateES(inicio) + ' al ' + formatDateES(fin) });
+        }
+      }
+    } catch(en) {}
     showToast('Solicitud enviada', 'success');
     renderMisSolicitudes();
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
