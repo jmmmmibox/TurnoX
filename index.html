@@ -1266,23 +1266,33 @@ async function loadAllData() {
       polivalencias: state.polivalencias.length
     });
 
-    // Load notifications separately (may fail if gestores table has no row)
+    // Load notifications
     try {
       if (state.user.tipo === 'empleado') {
         state.notificaciones = await sbQuery('notificaciones', {
           select: '*',
           filters: ['destinatario_empleado_id=eq.' + state.user.id],
           order: 'created_at.desc',
-          limit: 20
+          limit: 30
         });
       } else {
+        // Gestor: cargar notificaciones de solicitudes pendientes
+        var pendVac = await sbQuery('vacaciones_solicitudes', { select: 'id', filters: ['estado=eq.pendiente'] });
+        var pendInt = await sbQuery('intercambios', { select: 'id', filters: ['estado=eq.pendiente'] });
         state.notificaciones = [];
+        if (pendVac && pendVac.length > 0) {
+          state.notificaciones.push({ titulo: 'Vacaciones pendientes', mensaje: pendVac.length + ' solicitudes de vacaciones por revisar', leida: false, created_at: new Date().toISOString(), tipo: 'vacaciones' });
+        }
+        if (pendInt && pendInt.length > 0) {
+          state.notificaciones.push({ titulo: 'Intercambios pendientes', mensaje: pendInt.length + ' intercambios por revisar', leida: false, created_at: new Date().toISOString(), tipo: 'intercambio' });
+        }
       }
     } catch (e) {
       state.notificaciones = [];
     }
 
     updateNotifBadge();
+    updateNavBadges();
   } catch (e) {
     console.error('Error loading data:', e);
     showToast('Error cargando datos', 'error');
@@ -2891,6 +2901,16 @@ async function enviarIntercambio() {
       notas: document.getElementById('ni-notas').value,
       estado: 'pendiente',
     });
+    // Crear notificación para el receptor
+    try {
+      var emp = state.user.empleadoData || state.empleados.find(function(e) { return e.id === state.user.id; });
+      await sbInsert('notificaciones', {
+        destinatario_empleado_id: recId,
+        tipo: 'intercambio',
+        titulo: 'Solicitud de intercambio',
+        mensaje: (emp ? emp.nombre + ' ' + emp.apellidos : 'Un compañero') + ' te propone un intercambio de turno para el ' + formatDateES(fecha),
+      });
+    } catch(en) {}
     closeModal();
     showToast('Intercambio propuesto', 'success');
     renderMisSolicitudes();
@@ -2903,25 +2923,41 @@ async function aceptarIntercambio(id) {
     if (!ic || ic.length === 0) { showToast('No encontrado', 'error'); return; }
     ic = ic[0];
 
-    // Solicitante: en su fecha, pasa a hacer el turno del receptor cubriendo el área del receptor
+    // turno_solicitante = turno que el solicitante VA A CUBRIR
+    // turno_receptor = turno que el receptor VA A CUBRIR
+    // area_solicitante_id = área que el solicitante VA A CUBRIR
+    // area_receptor_id = área que el receptor VA A CUBRIR
+
+    // Asignar al solicitante su nuevo turno
     var ex1 = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + ic.solicitante_id, 'fecha=eq.' + ic.fecha_solicitante] });
     if (ex1 && ex1.length > 0) {
-      await sbUpdate('turnos', ex1[0].id, { tipo: ic.turno_receptor, area_id: ic.area_solicitante_id, editado_manualmente: true, notas: 'Intercambio' });
+      await sbUpdate('turnos', ex1[0].id, { tipo: ic.turno_solicitante, area_id: ic.area_solicitante_id, editado_manualmente: true, notas: 'Intercambio' });
     } else {
-      await sbInsert('turnos', { empleado_id: ic.solicitante_id, fecha: ic.fecha_solicitante, tipo: ic.turno_receptor, area_id: ic.area_solicitante_id, editado_manualmente: true, notas: 'Intercambio' });
+      await sbInsert('turnos', { empleado_id: ic.solicitante_id, fecha: ic.fecha_solicitante, tipo: ic.turno_solicitante, area_id: ic.area_solicitante_id, editado_manualmente: true, notas: 'Intercambio' });
     }
 
-    // Receptor: en su fecha, pasa a hacer el turno del solicitante cubriendo el área del solicitante
+    // Asignar al receptor su nuevo turno
     var ex2 = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + ic.receptor_id, 'fecha=eq.' + ic.fecha_receptor] });
     if (ex2 && ex2.length > 0) {
-      await sbUpdate('turnos', ex2[0].id, { tipo: ic.turno_solicitante, area_id: ic.area_receptor_id, editado_manualmente: true, notas: 'Intercambio' });
+      await sbUpdate('turnos', ex2[0].id, { tipo: ic.turno_receptor, area_id: ic.area_receptor_id, editado_manualmente: true, notas: 'Intercambio' });
     } else {
-      await sbInsert('turnos', { empleado_id: ic.receptor_id, fecha: ic.fecha_receptor, tipo: ic.turno_solicitante, area_id: ic.area_receptor_id, editado_manualmente: true, notas: 'Intercambio' });
+      await sbInsert('turnos', { empleado_id: ic.receptor_id, fecha: ic.fecha_receptor, tipo: ic.turno_receptor, area_id: ic.area_receptor_id, editado_manualmente: true, notas: 'Intercambio' });
     }
 
     await sbUpdate('intercambios', id, { estado: 'aceptado', confirmado_receptor: true });
 
-    // Recargar todos los turnos editados desde BD
+    // Notificar al solicitante
+    try {
+      var rec = state.user.empleadoData || state.empleados.find(function(e) { return e.id === state.user.id; });
+      await sbInsert('notificaciones', {
+        destinatario_empleado_id: ic.solicitante_id,
+        tipo: 'intercambio',
+        titulo: 'Intercambio aceptado',
+        mensaje: (rec ? rec.nombre + ' ' + rec.apellidos : 'Tu compañero') + ' ha aceptado el intercambio del ' + formatDateES(ic.fecha_solicitante),
+      });
+    } catch(en) {}
+
+    // Recargar turnos editados
     try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
 
     showToast('Intercambio aceptado y calendario actualizado', 'success');
@@ -3342,6 +3378,15 @@ async function guardarTurnoEdit(empId, fecha, nuevoTurno) {
     const idx = state.turnosEditados.findIndex(t => t.empleado_id === empId && t.fecha === fecha);
     if (idx >= 0) { state.turnosEditados[idx].tipo = nuevoTurno; }
     else { state.turnosEditados.push({ empleado_id: empId, fecha: fecha, tipo: nuevoTurno, editado_manualmente: true }); }
+    // Notificar al empleado
+    try {
+      await sbInsert('notificaciones', {
+        destinatario_empleado_id: empId,
+        tipo: 'turno',
+        titulo: 'Cambio de turno',
+        mensaje: 'Tu turno del ' + formatDateES(fecha) + ' ha sido cambiado a ' + nuevoTurno + ' (' + turnoLabel(nuevoTurno) + ')',
+      });
+    } catch(en) {}
     closeModal();
     showToast('Turno actualizado', 'success');
     renderCalendario();
@@ -3618,6 +3663,16 @@ async function aprobarSolicitud(id) {
 
     await sbUpdate('vacaciones_solicitudes', id, { estado: 'aprobada' });
 
+    // Notificar al empleado
+    try {
+      await sbInsert('notificaciones', {
+        destinatario_empleado_id: sol.empleado_id,
+        tipo: 'vacaciones',
+        titulo: 'Vacaciones aprobadas',
+        mensaje: 'Tus vacaciones del ' + formatDateES(sol.fecha_inicio) + ' al ' + formatDateES(sol.fecha_fin) + ' han sido aprobadas.',
+      });
+    } catch(en) {}
+
     // Recargar turnos editados
     try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
 
@@ -3626,8 +3681,15 @@ async function aprobarSolicitud(id) {
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 async function rechazarSolicitud(id) {
-  try { await sbUpdate('vacaciones_solicitudes', id, { estado: 'rechazada' }); showToast('Rechazada'); renderVacaciones(); }
-  catch (e) { showToast('Error', 'error'); }
+  try {
+    var sols = await sbQuery('vacaciones_solicitudes', { select: 'empleado_id,fecha_inicio,fecha_fin', filters: ['id=eq.' + id] });
+    await sbUpdate('vacaciones_solicitudes', id, { estado: 'rechazada' });
+    if (sols && sols[0]) {
+      try { await sbInsert('notificaciones', { destinatario_empleado_id: sols[0].empleado_id, tipo: 'vacaciones', titulo: 'Vacaciones rechazadas', mensaje: 'Tu solicitud del ' + formatDateES(sols[0].fecha_inicio) + ' al ' + formatDateES(sols[0].fecha_fin) + ' ha sido rechazada.' }); } catch(en) {}
+    }
+    showToast('Rechazada');
+    renderVacaciones();
+  } catch (e) { showToast('Error', 'error'); }
 }
 
 // =====================================================================
@@ -3636,6 +3698,53 @@ async function rechazarSolicitud(id) {
 function updateNotifBadge() {
   const unread = state.notificaciones.filter(n => !n.leida).length;
   document.getElementById('notif-dot').style.display = unread > 0 ? 'block' : 'none';
+}
+
+function updateNavBadges() {
+  // Add unread count badges to nav items
+  var unread = state.notificaciones.filter(function(n) { return !n.leida; });
+  var vacCount = unread.filter(function(n) { return n.tipo === 'vacaciones'; }).length;
+  var intCount = unread.filter(function(n) { return n.tipo === 'intercambio'; }).length;
+  var turCount = unread.filter(function(n) { return n.tipo === 'turno'; }).length;
+
+  // For empleado: show badges on mis-solicitudes
+  var solNav = document.getElementById('nav-mis-solicitudes');
+  if (solNav) {
+    var oldBadge = solNav.querySelector('.nav-badge');
+    if (oldBadge) oldBadge.remove();
+    var total = vacCount + intCount;
+    if (total > 0) {
+      solNav.insertAdjacentHTML('beforeend', '<span class="nav-badge">' + total + '</span>');
+    }
+  }
+
+  // Mi Turno badge for turno changes
+  var miTurnoNav = document.getElementById('nav-mi-turno');
+  if (miTurnoNav) {
+    var oldB2 = miTurnoNav.querySelector('.nav-badge');
+    if (oldB2) oldB2.remove();
+    if (turCount > 0) {
+      miTurnoNav.insertAdjacentHTML('beforeend', '<span class="nav-badge">' + turCount + '</span>');
+    }
+  }
+
+  // For gestor: show badges on vacaciones and intercambios
+  var vacNav = document.getElementById('nav-vacaciones');
+  if (vacNav) {
+    var oldB3 = vacNav.querySelector('.nav-badge');
+    if (oldB3) oldB3.remove();
+    if (vacCount > 0) {
+      vacNav.insertAdjacentHTML('beforeend', '<span class="nav-badge">' + vacCount + '</span>');
+    }
+  }
+  var intNav = document.getElementById('nav-intercambios');
+  if (intNav) {
+    var oldB4 = intNav.querySelector('.nav-badge');
+    if (oldB4) oldB4.remove();
+    if (intCount > 0) {
+      intNav.insertAdjacentHTML('beforeend', '<span class="nav-badge">' + intCount + '</span>');
+    }
+  }
 }
 
 function toggleNotifs() {
