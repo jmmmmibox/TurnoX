@@ -149,8 +149,41 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   flex-direction: column;
   z-index: 100;
-  transition: transform 0.3s;
+  transition: width 0.25s, transform 0.3s;
+  overflow: hidden;
 }
+.sidebar.collapsed {
+  width: 56px;
+}
+.sidebar.collapsed .sidebar-logo h2,
+.sidebar.collapsed .sidebar-logo p,
+.sidebar.collapsed .nav-section-label,
+.sidebar.collapsed .nav-item span,
+.sidebar.collapsed .nav-badge,
+.sidebar.collapsed .user-info,
+.sidebar.collapsed .btn-logout { display: none; }
+.sidebar.collapsed .nav-item { justify-content: center; padding: 10px; }
+.sidebar.collapsed .sidebar-user { justify-content: center; }
+.sidebar.collapsed .sidebar-logo { padding: 16px 12px; text-align: center; }
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 16px;
+  right: -12px;
+  width: 24px; height: 24px;
+  background: var(--primary);
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 101;
+  font-size: 11px;
+  transition: transform 0.25s;
+}
+.sidebar.collapsed + .main-content { margin-left: 56px; }
+.sidebar.collapsed .sidebar-collapse-btn { transform: rotate(180deg); }
 .sidebar-logo {
   padding: 20px 20px 16px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
@@ -896,6 +929,7 @@ td.col-descubierto { background: #FEF2F2 !important; }
   
   <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
+    <button class="sidebar-collapse-btn" onclick="collapseSidebar()" title="Ocultar/Mostrar menú">◀</button>
     <div class="sidebar-logo">
       <h2>TurnoX</h2>
       <p id="sidebar-planta">Planta Huelva</p>
@@ -2089,10 +2123,10 @@ async function renderIntercambios() {
 
   html += '<div class="card"><div class="card-header"><span class="card-title">Historial de intercambios</span></div>';
   html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
-  html += '<th>Solicitante</th><th>Área cubre</th><th>Receptor</th><th>Área cubre</th><th>Fecha</th><th>Estado</th>';
+  html += '<th>Solicitante</th><th>Área cubre</th><th>Receptor</th><th>Área cubre</th><th>Fecha</th><th>Estado</th><th></th>';
   html += '</tr></thead><tbody>';
   if (intercambios.length === 0) {
-    html += '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text3)">Sin intercambios</td></tr>';
+    html += '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">Sin intercambios</td></tr>';
   }
   intercambios.forEach(function(ic) {
     var sol = state.empleados.find(function(e) { return e.id === ic.solicitante_id; });
@@ -2108,13 +2142,103 @@ async function renderIntercambios() {
     html += '<td style="font-size:12px">' + (areaRec ? areaRec.nombre : '—') + '</td>';
     html += '<td style="font-size:12px">' + formatDateES(ic.fecha_solicitante) + '</td>';
     html += '<td><span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></td>';
-    html += '</tr>';
+    html += '<td><div style="display:flex;gap:4px">';
+    html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarIntercambio(\'' + ic.id + '\')">✎</button>';
+    html += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarIntercambio(\'' + ic.id + '\',\'' + ic.solicitante_id + '\',\'' + ic.receptor_id + '\',\'' + ic.fecha_solicitante + '\',\'' + ic.fecha_receptor + '\')">✕</button>';
+    html += '</div></td></tr>';
   });
   html += '</tbody></table></div></div>';
   document.getElementById('page-intercambios').innerHTML = html;
 }
 
 
+
+// =====================================================================
+// EDITAR/ELIMINAR INTERCAMBIOS (gestor)
+// =====================================================================
+function modalEditarIntercambio(icId) {
+  sbQuery('intercambios', { select: '*', filters: ['id=eq.' + icId] }).then(function(rows) {
+    if (!rows || rows.length === 0) return;
+    var ic = rows[0];
+    var sol = state.empleados.find(function(e) { return e.id === ic.solicitante_id; });
+    var rec = state.empleados.find(function(e) { return e.id === ic.receptor_id; });
+
+    var body = '<div style="margin-bottom:12px"><strong>' + (sol ? sol.nombre + ' ' + sol.apellidos : '?') + '</strong> ⇄ <strong>' + (rec ? rec.nombre + ' ' + rec.apellidos : '?') + '</strong></div>';
+    body += '<div class="form-group"><label class="form-label">Fecha</label><input type="date" class="form-input" id="ei-fecha" value="' + ic.fecha_solicitante + '"></div>';
+    body += '<div class="grid-2">';
+    body += '<div class="form-group"><label class="form-label">Turno solicitante cubre</label><select class="form-input" id="ei-turno-sol">';
+    ['M','T','N','R','S','L'].forEach(function(t) { body += '<option value="' + t + '"' + (ic.turno_solicitante === t ? ' selected' : '') + '>' + t + ' — ' + turnoLabel(t) + '</option>'; });
+    body += '</select></div>';
+    body += '<div class="form-group"><label class="form-label">Turno receptor cubre</label><select class="form-input" id="ei-turno-rec">';
+    ['M','T','N','R','S','L'].forEach(function(t) { body += '<option value="' + t + '"' + (ic.turno_receptor === t ? ' selected' : '') + '>' + t + ' — ' + turnoLabel(t) + '</option>'; });
+    body += '</select></div></div>';
+    body += '<div class="grid-2">';
+    body += '<div class="form-group"><label class="form-label">Área solicitante cubre</label><select class="form-input" id="ei-area-sol">';
+    state.areas.forEach(function(a) { body += '<option value="' + a.id + '"' + (ic.area_solicitante_id === a.id ? ' selected' : '') + '>' + a.nombre + '</option>'; });
+    body += '</select></div>';
+    body += '<div class="form-group"><label class="form-label">Área receptor cubre</label><select class="form-input" id="ei-area-rec">';
+    state.areas.forEach(function(a) { body += '<option value="' + a.id + '"' + (ic.area_receptor_id === a.id ? ' selected' : '') + '>' + a.nombre + '</option>'; });
+    body += '</select></div></div>';
+    body += '<div class="form-group"><label class="form-label">Estado</label><select class="form-input" id="ei-estado">';
+    ['pendiente','aceptado','rechazado'].forEach(function(e) { body += '<option value="' + e + '"' + (ic.estado === e ? ' selected' : '') + '>' + e + '</option>'; });
+    body += '</select></div>';
+    body += '<div class="form-group"><label class="form-label">Notas</label><textarea class="form-input" id="ei-notas" rows="2">' + (ic.notas || '') + '</textarea></div>';
+
+    openModal('Editar intercambio', body,
+      '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+      '<button class="btn btn-blue" onclick="guardarIntercambioEdit(\'' + icId + '\',\'' + ic.solicitante_id + '\',\'' + ic.receptor_id + '\')">Guardar</button>');
+  });
+}
+
+async function guardarIntercambioEdit(icId, solId, recId) {
+  var fecha = document.getElementById('ei-fecha').value;
+  var turnoSol = document.getElementById('ei-turno-sol').value;
+  var turnoRec = document.getElementById('ei-turno-rec').value;
+  var areaSol = document.getElementById('ei-area-sol').value;
+  var areaRec = document.getElementById('ei-area-rec').value;
+  var estado = document.getElementById('ei-estado').value;
+  try {
+    await sbUpdate('intercambios', icId, {
+      fecha_solicitante: fecha, fecha_receptor: fecha,
+      turno_solicitante: turnoSol, turno_receptor: turnoRec,
+      area_solicitante_id: areaSol, area_receptor_id: areaRec,
+      estado: estado, notas: document.getElementById('ei-notas').value
+    });
+    // Si aceptado, actualizar turnos en calendario
+    if (estado === 'aceptado') {
+      var ex1 = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + solId, 'fecha=eq.' + fecha] });
+      if (ex1 && ex1.length > 0) await sbUpdate('turnos', ex1[0].id, { tipo: turnoSol, area_id: areaSol, editado_manualmente: true, notas: 'Intercambio' });
+      else await sbInsert('turnos', { empleado_id: solId, fecha: fecha, tipo: turnoSol, area_id: areaSol, editado_manualmente: true, notas: 'Intercambio' });
+
+      var ex2 = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + recId, 'fecha=eq.' + fecha] });
+      if (ex2 && ex2.length > 0) await sbUpdate('turnos', ex2[0].id, { tipo: turnoRec, area_id: areaRec, editado_manualmente: true, notas: 'Intercambio' });
+      else await sbInsert('turnos', { empleado_id: recId, fecha: fecha, tipo: turnoRec, area_id: areaRec, editado_manualmente: true, notas: 'Intercambio' });
+
+      try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
+    }
+    closeModal();
+    showToast('Intercambio actualizado', 'success');
+    renderIntercambios();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function eliminarIntercambio(icId, solId, recId, fechaSol, fechaRec) {
+  if (!confirm('¿Eliminar este intercambio? Si estaba aceptado, los turnos del calendario se restaurarán.')) return;
+  try {
+    // Eliminar turnos editados asociados
+    try {
+      var t1 = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + solId, 'fecha=eq.' + fechaSol, 'notas=eq.Intercambio'] });
+      if (t1 && t1.length > 0) await sbDelete('turnos', t1[0].id);
+      var t2 = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + recId, 'fecha=eq.' + fechaRec, 'notas=eq.Intercambio'] });
+      if (t2 && t2.length > 0) await sbDelete('turnos', t2[0].id);
+    } catch(et) {}
+
+    await sbDelete('intercambios', icId);
+    try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
+    showToast('Intercambio eliminado', 'success');
+    renderIntercambios();
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
 
 // =====================================================================
 // AUSENCIAS
@@ -3855,6 +3979,18 @@ async function guardarCambioPassword() {
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('mobile-overlay').classList.remove('show');
+}
+
+function collapseSidebar() {
+  var sb = document.getElementById('sidebar');
+  sb.classList.toggle('collapsed');
+  // Save preference
+  localStorage.setItem('sidebar-collapsed', sb.classList.contains('collapsed') ? '1' : '0');
+}
+
+// Restore sidebar state on load
+if (localStorage.getItem('sidebar-collapsed') === '1') {
+  document.getElementById('sidebar').classList.add('collapsed');
 }
 
 // Close notification dropdown on outside click
