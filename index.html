@@ -415,12 +415,13 @@ a { color: inherit; text-decoration: none; }
   background: white;
 }
 
-.cal-table-wrap { overflow-x: auto; }
+.cal-table-wrap { overflow-x: auto; max-height: 80vh; overflow-y: auto; }
 .cal-table {
   width: 100%;
   border-collapse: collapse;
   min-width: 900px;
 }
+.cal-table thead { position: sticky; top: 0; z-index: 5; }
 .cal-table th {
   padding: 8px 4px;
   font-size: 11px;
@@ -429,6 +430,7 @@ a { color: inherit; text-decoration: none; }
   text-align: center;
   border-bottom: 2px solid var(--border);
   white-space: nowrap;
+  background: white;
 }
 .cal-table th.day-header {
   width: 36px;
@@ -1260,6 +1262,15 @@ function logout() {
 // =====================================================================
 async function loadAllData() {
   try {
+    // Load planta name
+    try {
+      var plantaData = await sbQuery('plantas', { select: 'nombre', filters: ['id=eq.' + PLANTA_ID] });
+      if (plantaData && plantaData[0]) {
+        state.plantaNombre = plantaData[0].nombre;
+        document.getElementById('sidebar-planta').textContent = plantaData[0].nombre;
+      }
+    } catch(ep) {}
+
     // Load each independently so one failure doesn't kill all
     const results = await Promise.allSettled([
       sbQuery('empleados', {
@@ -1704,7 +1715,7 @@ function renderCalendarioInner() {
   }
 
   html += '<div class="cal-table-wrap"><table class="cal-table"><thead><tr>';
-  html += '<th style="text-align:left;padding:8px 12px;min-width:170px;position:sticky;left:0;background:white;z-index:10">Empleado</th>';
+  html += '<th style="text-align:left;padding:8px 12px;min-width:170px;position:sticky;left:0;top:0;background:white;z-index:15">Empleado</th>';
   dias.forEach(d => {
     const desc = diasDescubiertos[d.ds];
     html += '<th class="day-header' + (d.isWeekend ? ' weekend' : '') + (d.isFestivo ? ' festivo' : '') + (desc ? ' descubierto' : '') + '"' + (desc ? ' onclick="mostrarDescubierto(\'' + d.ds + '\')" style="cursor:pointer"' : '') + '>';
@@ -2658,7 +2669,7 @@ function imprimirInforme() {
 function renderConfiguracion() {
   const tab = state.configTab || 'ciclos';
   let html = '<div class="config-tabs">';
-  [['ciclos', 'Ciclos por Letra'], ['festivos', 'Festivos'], ['areas', 'Áreas'], ['letras', 'Letras']].forEach(([id, label]) => {
+  [['ciclos', 'Ciclos por Letra'], ['festivos', 'Festivos'], ['areas', 'Áreas'], ['letras', 'Letras'], ['planta', 'Planta'], ['backup', 'Backup']].forEach(([id, label]) => {
     html += '<button class="config-tab' + (tab === id ? ' active' : '') + '" onclick="state.configTab=\'' + id + '\';renderConfiguracion()">' + label + '</button>';
   });
   html += '</div>';
@@ -2754,6 +2765,31 @@ function renderConfiguracion() {
       html += '</div></div>';
     });
     html += '</div></div>';
+  }
+
+  if (tab === 'planta') {
+    html += '<div class="card"><div class="card-header"><span class="card-title">Datos de la planta</span></div><div class="card-body">';
+    html += '<div class="form-group"><label class="form-label">Nombre de la planta</label>';
+    html += '<input class="form-input" id="cfg-planta-nombre" value="' + (state.plantaNombre || 'Planta Huelva') + '"></div>';
+    html += '<button class="btn btn-blue" onclick="guardarNombrePlanta()">Guardar</button>';
+    html += '</div></div>';
+  }
+
+  if (tab === 'backup') {
+    html += '<div class="card"><div class="card-header"><span class="card-title">Copia de seguridad</span></div><div class="card-body">';
+    html += '<div class="grid-2">';
+    html += '<div style="border:1px solid var(--border);border-radius:8px;padding:20px;text-align:center">';
+    html += '<div style="font-size:32px;margin-bottom:8px">💾</div>';
+    html += '<div style="font-size:14px;font-weight:600;margin-bottom:4px">Descargar backup</div>';
+    html += '<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Descarga todos los datos de la planta en un archivo JSON</div>';
+    html += '<button class="btn btn-blue" onclick="descargarBackup()">Descargar backup</button></div>';
+    html += '<div style="border:1px solid var(--border);border-radius:8px;padding:20px;text-align:center">';
+    html += '<div style="font-size:32px;margin-bottom:8px">📂</div>';
+    html += '<div style="font-size:14px;font-weight:600;margin-bottom:4px">Restaurar backup</div>';
+    html += '<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Sube un archivo JSON para restaurar datos anteriores</div>';
+    html += '<input type="file" id="backup-file" accept=".json" style="display:none" onchange="restaurarBackup(this)">';
+    html += '<button class="btn btn-outline" onclick="document.getElementById(\'backup-file\').click()">Seleccionar archivo</button></div>';
+    html += '</div></div></div>';
   }
 
   document.getElementById('page-configuracion').innerHTML = html;
@@ -3744,11 +3780,11 @@ function modalEditarAusencia(ausId) {
     body += '<div class="form-group"><label class="form-label">Motivo</label><textarea class="form-input" id="ea-notas" rows="2">' + (a.motivo || '') + '</textarea></div>';
     openModal('Editar ausencia', body,
       '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
-      '<button class="btn btn-blue" onclick="guardarAusenciaEdit(\'' + ausId + '\',\'' + a.empleado_id + '\')">Guardar</button>');
+      '<button class="btn btn-blue" onclick="guardarAusenciaEdit(\'' + ausId + '\',\'' + a.empleado_id + '\',\'' + a.fecha_inicio + '\',\'' + a.fecha_fin + '\')">Guardar</button>');
   });
 }
 
-async function guardarAusenciaEdit(ausId, empId) {
+async function guardarAusenciaEdit(ausId, empId, oldInicio, oldFin) {
   var tipo = document.getElementById('ea-tipo').value;
   var inicio = document.getElementById('ea-inicio').value;
   var fin = document.getElementById('ea-fin').value;
@@ -3757,27 +3793,38 @@ async function guardarAusenciaEdit(ausId, empId) {
       tipo: tipo, cobertura_tipo: document.getElementById('ea-cob').value,
       fecha_inicio: inicio, fecha_fin: fin, motivo: document.getElementById('ea-notas').value,
     });
-    var turnoTipo = 'B'; // todas las ausencias usan B en calendario
+    // 1. Delete old B turnos from previous date range
+    var od = new Date(oldInicio + 'T12:00:00');
+    var oFinD = new Date(oldFin + 'T12:00:00');
+    while (od <= oFinD) {
+      var ods = od.getFullYear() + '-' + String(od.getMonth() + 1).padStart(2, '0') + '-' + String(od.getDate()).padStart(2, '0');
+      try {
+        var oex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + ods, 'editado_manualmente=eq.true'] });
+        if (oex && oex.length > 0 && oex[0].tipo === 'B') await sbDelete('turnos', oex[0].id);
+      } catch(e2) {}
+      od.setDate(od.getDate() + 1);
+    }
+    // 2. Create new B turnos for new date range
     var d = new Date(inicio + 'T12:00:00');
     var finD = new Date(fin + 'T12:00:00');
     while (d <= finD) {
       var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
       try {
         var ex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + ds] });
-        if (ex && ex.length > 0) await sbUpdate('turnos', ex[0].id, { tipo: turnoTipo, editado_manualmente: true });
-        else await sbInsert('turnos', { empleado_id: empId, fecha: ds, tipo: turnoTipo, editado_manualmente: true });
+        if (ex && ex.length > 0) await sbUpdate('turnos', ex[0].id, { tipo: 'B', editado_manualmente: true, notas: tipo });
+        else await sbInsert('turnos', { empleado_id: empId, fecha: ds, tipo: 'B', editado_manualmente: true, notas: tipo });
       } catch(e2) {}
       d.setDate(d.getDate() + 1);
     }
     try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
     closeModal();
     renderAusencias();
-    showToast('Ausencia actualizada', 'success');
+    showToast('Ausencia actualizada y calendario sincronizado', 'success');
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 async function eliminarAusencia(ausId, empId, inicio, fin) {
-  if (!confirm('Eliminar esta ausencia? Los turnos del calendario se restauraran.')) return;
+  if (!confirm('¿Eliminar esta ausencia? Los turnos del calendario se restaurarán.')) return;
   try {
     await sbDelete('ausencias', ausId);
     var d = new Date(inicio + 'T12:00:00');
@@ -3786,7 +3833,7 @@ async function eliminarAusencia(ausId, empId, inicio, fin) {
       var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
       try {
         var ex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + ds, 'editado_manualmente=eq.true'] });
-        if (ex && ex.length > 0 && (ex[0].tipo === 'B' || ex[0].tipo === 'L')) await sbDelete('turnos', ex[0].id);
+        if (ex && ex.length > 0 && ex[0].tipo === 'B') await sbDelete('turnos', ex[0].id);
       } catch(e2) {}
       d.setDate(d.getDate() + 1);
     }
@@ -4074,6 +4121,83 @@ async function crearArea() {
     renderConfiguracion();
     showToast('Área creada', 'success');
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
+// PLANTA NAME
+// =====================================================================
+async function guardarNombrePlanta() {
+  var nombre = document.getElementById('cfg-planta-nombre').value.trim();
+  if (!nombre) { showToast('Indica un nombre', 'error'); return; }
+  try {
+    await sbUpdate('plantas', PLANTA_ID, { nombre: nombre });
+    state.plantaNombre = nombre;
+    document.getElementById('sidebar-planta').textContent = nombre;
+    showToast('Nombre actualizado', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
+// BACKUP / RESTORE
+// =====================================================================
+async function descargarBackup() {
+  showToast('Generando backup...');
+  try {
+    var backup = {
+      version: 'turnox-backup-v1',
+      fecha: new Date().toISOString(),
+      planta_id: PLANTA_ID,
+    };
+    var tablas = ['plantas', 'areas', 'letras', 'empleados', 'polivalencias', 'festivos', 'ciclos_config', 'turnos', 'vacaciones_rondas', 'vacaciones_solicitudes', 'vacaciones_config_letra', 'intercambios', 'ausencias', 'notificaciones'];
+    for (var i = 0; i < tablas.length; i++) {
+      try { backup[tablas[i]] = await sbQuery(tablas[i], { select: '*' }); }
+      catch(e) { backup[tablas[i]] = []; }
+    }
+    var blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'turnox-backup-' + todayStr() + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Backup descargado', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function restaurarBackup(input) {
+  if (!input.files || !input.files[0]) return;
+  if (!confirm('¿Restaurar backup? Esto sobrescribirá los datos actuales. ¿Estás seguro?')) { input.value = ''; return; }
+  var reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      var backup = JSON.parse(e.target.result);
+      if (backup.version !== 'turnox-backup-v1') { showToast('Archivo de backup no válido', 'error'); return; }
+      showToast('Restaurando backup...');
+
+      // Orden de restauración: primero las tablas sin FK, luego las dependientes
+      var orden = ['plantas', 'areas', 'letras', 'empleados', 'polivalencias', 'festivos', 'ciclos_config', 'turnos', 'vacaciones_rondas', 'vacaciones_config_letra', 'vacaciones_solicitudes', 'intercambios', 'ausencias', 'notificaciones'];
+
+      for (var i = 0; i < orden.length; i++) {
+        var tabla = orden[i];
+        if (!backup[tabla] || backup[tabla].length === 0) continue;
+        // Delete existing
+        try {
+          var existing = await sbQuery(tabla, { select: 'id' });
+          for (var j = 0; j < existing.length; j++) {
+            try { await sbDelete(tabla, existing[j].id); } catch(ed) {}
+          }
+        } catch(ed2) {}
+        // Insert new
+        for (var k = 0; k < backup[tabla].length; k++) {
+          try { await sbInsert(tabla, backup[tabla][k]); } catch(ei) {}
+        }
+      }
+
+      showToast('Backup restaurado. Recargando...', 'success');
+      setTimeout(function() { location.reload(); }, 2000);
+    } catch (e) { showToast('Error leyendo el archivo: ' + e.message, 'error'); }
+  };
+  reader.readAsText(input.files[0]);
 }
 
 // =====================================================================
