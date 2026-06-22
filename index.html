@@ -1528,6 +1528,16 @@ function statCard(label, value, sub, bg, color) {
 // CALENDARIO
 // =====================================================================
 function renderCalendario() {
+  // Recargar turnos editados para datos frescos
+  sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }).then(function(data) {
+    state.turnosEditados = data || [];
+    renderCalendarioInner();
+  }).catch(function() {
+    renderCalendarioInner();
+  });
+}
+
+function renderCalendarioInner() {
   const year = state.calYear;
   const mes = state.calMes;
   const diasMes = new Date(year, mes + 1, 0).getDate();
@@ -2347,6 +2357,16 @@ function renderMiCalendario() {
   const emp = state.user.empleadoData || state.empleados.find(e => e.id === state.user.id);
   if (!emp) return;
 
+  // Recargar turnos editados para tener datos frescos
+  sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }).then(function(data) {
+    state.turnosEditados = data || [];
+    renderMiCalendarioInner(emp);
+  }).catch(function() {
+    renderMiCalendarioInner(emp);
+  });
+}
+
+function renderMiCalendarioInner(emp) {
   const year = state.calYear;
   const mes = state.calMes;
   const diasMes = new Date(year, mes + 1, 0).getDate();
@@ -2386,7 +2406,7 @@ function renderMiCalendario() {
 
   html += '</div>';
   html += '<div class="legend-row">';
-  [['M','Mañana'],['T','Tarde'],['N','Noche'],['D','Descanso'],['R','Refuerzo']].forEach(([k, v]) => {
+  [['M','Mañana'],['T','Tarde'],['N','Noche'],['D','Descanso'],['R','Refuerzo'],['V','Vacaciones'],['B','Baja'],['S','Sol 12h'],['L','Luna 12h']].forEach(([k, v]) => {
     html += '<div class="legend-item"><span class="turno-badge ' + k + '">' + k + '</span> ' + v + '</div>';
   });
   html += '</div></div></div>';
@@ -2826,21 +2846,30 @@ async function enviarIntercambio() {
 
 async function aceptarIntercambio(id) {
   try {
-    // Aceptar y crear turnos editados
     var ic = await sbQuery('intercambios', { select: '*', filters: ['id=eq.' + id] });
     if (!ic || ic.length === 0) { showToast('No encontrado', 'error'); return; }
     ic = ic[0];
 
-    // Crear turno editado para solicitante (cubre area del receptor)
-    await sbInsert('turnos', { empleado_id: ic.solicitante_id, fecha: ic.fecha_solicitante, tipo: ic.turno_receptor, area_id: ic.area_solicitante_id, editado_manualmente: true, notas: 'Intercambio' });
-    // Crear turno editado para receptor (cubre area del solicitante)
-    await sbInsert('turnos', { empleado_id: ic.receptor_id, fecha: ic.fecha_receptor, tipo: ic.turno_solicitante, area_id: ic.area_receptor_id, editado_manualmente: true, notas: 'Intercambio' });
+    // Solicitante: en su fecha, pasa a hacer el turno del receptor cubriendo el área del receptor
+    var ex1 = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + ic.solicitante_id, 'fecha=eq.' + ic.fecha_solicitante] });
+    if (ex1 && ex1.length > 0) {
+      await sbUpdate('turnos', ex1[0].id, { tipo: ic.turno_receptor, area_id: ic.area_solicitante_id, editado_manualmente: true, notas: 'Intercambio' });
+    } else {
+      await sbInsert('turnos', { empleado_id: ic.solicitante_id, fecha: ic.fecha_solicitante, tipo: ic.turno_receptor, area_id: ic.area_solicitante_id, editado_manualmente: true, notas: 'Intercambio' });
+    }
+
+    // Receptor: en su fecha, pasa a hacer el turno del solicitante cubriendo el área del solicitante
+    var ex2 = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + ic.receptor_id, 'fecha=eq.' + ic.fecha_receptor] });
+    if (ex2 && ex2.length > 0) {
+      await sbUpdate('turnos', ex2[0].id, { tipo: ic.turno_solicitante, area_id: ic.area_receptor_id, editado_manualmente: true, notas: 'Intercambio' });
+    } else {
+      await sbInsert('turnos', { empleado_id: ic.receptor_id, fecha: ic.fecha_receptor, tipo: ic.turno_solicitante, area_id: ic.area_receptor_id, editado_manualmente: true, notas: 'Intercambio' });
+    }
 
     await sbUpdate('intercambios', id, { estado: 'aceptado', confirmado_receptor: true });
 
-    // Actualizar turnosEditados local
-    state.turnosEditados.push({ empleado_id: ic.solicitante_id, fecha: ic.fecha_solicitante, tipo: ic.turno_receptor, editado_manualmente: true });
-    state.turnosEditados.push({ empleado_id: ic.receptor_id, fecha: ic.fecha_receptor, tipo: ic.turno_solicitante, editado_manualmente: true });
+    // Recargar todos los turnos editados desde BD
+    try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
 
     showToast('Intercambio aceptado y calendario actualizado', 'success');
     renderMisSolicitudes();
