@@ -2793,48 +2793,101 @@ async function enviarSolicitudVacaciones(rondaId, diasRonda, numRonda) {
 function modalNuevoIntercambio() {
   var emp = state.user.empleadoData || state.empleados.find(function(e) { return e.id === state.user.id; });
   if (!emp) return;
+  var miArea = getArea(emp.area_principal_id);
 
-  var body = '<div class="form-group"><label class="form-label">Fecha del cambio</label><input type="date" class="form-input" id="ni-fecha"></div>';
-  body += '<div class="form-group"><label class="form-label">Compañero</label><select class="form-input" id="ni-receptor">';
+  var body = '<div class="form-group"><label class="form-label">Fecha del cambio</label>';
+  body += '<input type="date" class="form-input" id="ni-fecha" onchange="intercambioAutoFill()"></div>';
+  body += '<div class="form-group"><label class="form-label">Compañero para el cambio</label><select class="form-input" id="ni-receptor" onchange="intercambioAutoFill()">';
+  body += '<option value="">— Seleccionar —</option>';
   state.empleados.filter(function(e) { return e.id !== emp.id; }).forEach(function(e) {
     var l = getLetra(e.letra_id);
-    body += '<option value="' + e.id + '">' + e.nombre + ' ' + e.apellidos + ' (' + (l ? l.nombre : '?') + ')</option>';
+    var a = getArea(e.area_principal_id);
+    body += '<option value="' + e.id + '">' + e.nombre + ' ' + e.apellidos + ' (' + (l ? l.nombre : '?') + ' · ' + (a ? a.nombre : '') + ')</option>';
   });
   body += '</select></div>';
-  body += '<div class="grid-2">';
-  body += '<div class="form-group"><label class="form-label">Tu turno ese día</label><select class="form-input" id="ni-turno-sol">';
-  ['M','T','N','R','S','L'].forEach(function(t) { body += '<option value="' + t + '">' + t + ' — ' + turnoLabel(t) + '</option>'; });
-  body += '</select></div>';
-  body += '<div class="form-group"><label class="form-label">Turno del compañero</label><select class="form-input" id="ni-turno-rec">';
-  ['M','T','N','R','S','L'].forEach(function(t) { body += '<option value="' + t + '">' + t + ' — ' + turnoLabel(t) + '</option>'; });
-  body += '</select></div></div>';
-  body += '<div class="grid-2">';
-  body += '<div class="form-group"><label class="form-label">Tú cubres área</label><select class="form-input" id="ni-area-sol">';
-  state.areas.forEach(function(a) { body += '<option value="' + a.id + '"' + (a.id === emp.area_principal_id ? ' selected' : '') + '>' + a.nombre + '</option>'; });
-  body += '</select></div>';
-  body += '<div class="form-group"><label class="form-label">Compañero cubre área</label><select class="form-input" id="ni-area-rec">';
-  state.areas.forEach(function(a) { body += '<option value="' + a.id + '">' + a.nombre + '</option>'; });
-  body += '</select></div></div>';
-  body += '<div class="form-group"><label class="form-label">Notas</label><textarea class="form-input" id="ni-notas" rows="2"></textarea></div>';
 
-  openModal('Proponer intercambio', body,
+  // Info auto-rellenada
+  body += '<div id="ni-auto-info" style="display:none"></div>';
+
+  // Sección YO
+  body += '<div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:12px">';
+  body += '<div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:8px">YO — ' + emp.nombre + ' ' + emp.apellidos + '</div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Mi turno actual</label><input class="form-input" id="ni-mi-turno-actual" readonly style="background:#f0f0f0"></div>';
+  body += '<div class="form-group"><label class="form-label">Mi área actual</label><input class="form-input" value="' + (miArea ? miArea.nombre : '') + '" readonly style="background:#f0f0f0"></div></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Turno que voy a cubrir</label><select class="form-input" id="ni-turno-cubro">';
+  ['M','T','N','R','S','L'].forEach(function(t) { body += '<option value="' + t + '">' + t + ' — ' + turnoLabel(t) + '</option>'; });
+  body += '</select></div>';
+  body += '<div class="form-group"><label class="form-label">Área que voy a cubrir</label><select class="form-input" id="ni-area-cubro">';
+  state.areas.forEach(function(a) { body += '<option value="' + a.id + '">' + a.nombre + '</option>'; });
+  body += '</select></div></div></div>';
+
+  // Sección COMPAÑERO
+  body += '<div style="background:#FEF3C7;border-radius:8px;padding:12px;margin-bottom:12px">';
+  body += '<div style="font-size:12px;font-weight:700;color:#92400E;margin-bottom:8px">COMPAÑERO — <span id="ni-comp-nombre">selecciona arriba</span></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Su turno actual</label><input class="form-input" id="ni-comp-turno-actual" readonly style="background:#f0f0f0"></div>';
+  body += '<div class="form-group"><label class="form-label">Su área actual</label><input class="form-input" id="ni-comp-area-actual" readonly style="background:#f0f0f0"></div></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Turno que cubrirá</label><select class="form-input" id="ni-comp-turno-cubre">';
+  ['M','T','N','R','S','L'].forEach(function(t) { body += '<option value="' + t + '">' + t + ' — ' + turnoLabel(t) + '</option>'; });
+  body += '</select></div>';
+  body += '<div class="form-group"><label class="form-label">Área que cubrirá</label><select class="form-input" id="ni-comp-area-cubre">';
+  state.areas.forEach(function(a) { body += '<option value="' + a.id + '"' + (a.id === emp.area_principal_id ? ' selected' : '') + '>' + a.nombre + '</option>'; });
+  body += '</select></div></div></div>';
+
+  body += '<div class="form-group"><label class="form-label">Notas / Aclaraciones</label><textarea class="form-input" id="ni-notas" rows="2" placeholder="Detalles del cambio..."></textarea></div>';
+
+  openModal('Proponer intercambio de turno', body,
     '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
-    '<button class="btn btn-blue" onclick="enviarIntercambio()">Proponer</button>');
+    '<button class="btn btn-blue" onclick="enviarIntercambio()">Proponer intercambio</button>');
+}
+
+function intercambioAutoFill() {
+  var fecha = document.getElementById('ni-fecha').value;
+  var recId = document.getElementById('ni-receptor').value;
+  var emp = state.user.empleadoData || state.empleados.find(function(e) { return e.id === state.user.id; });
+  if (!emp || !fecha) return;
+
+  // Auto-rellenar mi turno actual
+  var miTurno = calcTurno(emp, fecha);
+  document.getElementById('ni-mi-turno-actual').value = miTurno ? miTurno + ' — ' + turnoLabel(miTurno) : 'Sin turno';
+
+  if (!recId) return;
+
+  // Auto-rellenar datos del compañero
+  var rec = state.empleados.find(function(e) { return e.id === recId; });
+  if (!rec) return;
+
+  var recTurno = calcTurno(rec, fecha);
+  var recArea = getArea(rec.area_principal_id);
+
+  document.getElementById('ni-comp-nombre').textContent = rec.nombre + ' ' + rec.apellidos;
+  document.getElementById('ni-comp-turno-actual').value = recTurno ? recTurno + ' — ' + turnoLabel(recTurno) : 'Sin turno';
+  document.getElementById('ni-comp-area-actual').value = recArea ? recArea.nombre : '—';
+
+  // Auto-seleccionar: yo cubro su turno/area, él cubre mi turno/area
+  if (recTurno) document.getElementById('ni-turno-cubro').value = recTurno;
+  if (recArea) document.getElementById('ni-area-cubro').value = rec.area_principal_id;
+  if (miTurno) document.getElementById('ni-comp-turno-cubre').value = miTurno;
 }
 
 async function enviarIntercambio() {
   var fecha = document.getElementById('ni-fecha').value;
+  var recId = document.getElementById('ni-receptor').value;
   if (!fecha) { showToast('Indica la fecha', 'error'); return; }
+  if (!recId) { showToast('Selecciona un compañero', 'error'); return; }
   try {
     await sbInsert('intercambios', {
       solicitante_id: state.user.id,
-      receptor_id: document.getElementById('ni-receptor').value,
+      receptor_id: recId,
       fecha_solicitante: fecha,
       fecha_receptor: fecha,
-      turno_solicitante: document.getElementById('ni-turno-sol').value,
-      turno_receptor: document.getElementById('ni-turno-rec').value,
-      area_solicitante_id: document.getElementById('ni-area-sol').value,
-      area_receptor_id: document.getElementById('ni-area-rec').value,
+      turno_solicitante: document.getElementById('ni-turno-cubro').value,
+      turno_receptor: document.getElementById('ni-comp-turno-cubre').value,
+      area_solicitante_id: document.getElementById('ni-area-cubro').value,
+      area_receptor_id: document.getElementById('ni-comp-area-cubre').value,
       notas: document.getElementById('ni-notas').value,
       estado: 'pendiente',
     });
