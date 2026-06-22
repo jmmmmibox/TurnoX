@@ -2322,34 +2322,334 @@ async function renderAusencias() {
 // INFORMES
 // =====================================================================
 function renderInformes() {
-  const reports = [
-    { title: 'Informe de Turnos', desc: 'Resumen mensual por empleado y letra', icon: '📅' },
-    { title: 'Horas Trabajadas', desc: 'Cómputo de horas por período', icon: '⏱️' },
-    { title: 'Vacaciones', desc: 'Estado de vacaciones y rondas', icon: '🌴' },
-    { title: 'Ausencias', desc: 'Registro de bajas y coberturas', icon: '🏥' },
-  ];
-  let html = '<div class="grid-2 mb-6">';
-  reports.forEach(r => {
-    html += '<div class="card" style="cursor:pointer" onclick="showToast(\'Generando informe...\')"><div class="card-body" style="display:flex;gap:16px;align-items:center">';
-    html += '<div style="font-size:32px">' + r.icon + '</div><div>';
-    html += '<div style="font-size:14px;font-weight:600;margin-bottom:4px">' + r.title + '</div>';
-    html += '<div style="font-size:12px;color:var(--text2)">' + r.desc + '</div>';
-    html += '<div style="display:flex;gap:6px;margin-top:10px"><button class="btn btn-sm btn-outline">PDF</button><button class="btn btn-sm btn-outline">Excel</button></div>';
-    html += '</div></div></div>';
-  });
-  html += '</div>';
+  if (!state.informeTab) state.informeTab = 'menu';
+  var tab = state.informeTab;
 
-  html += '<div class="card"><div class="card-header"><span class="card-title">Resumen por letra</span></div><div class="card-body">';
-  html += '<div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">';
-  state.letras.forEach(l => {
-    const count = state.empleados.filter(e => e.letra_id === l.id).length;
-    html += '<div style="background:var(--bg);border-radius:8px;padding:14px">';
-    html += '<div style="font-size:11px;font-weight:700;color:' + l.color + '">Letra ' + l.nombre + '</div>';
-    html += '<div style="font-size:20px;font-weight:700">' + count + '</div>';
-    html += '<div style="font-size:11px;color:var(--text2)">empleados</div></div>';
-  });
-  html += '</div></div></div>';
+  var html = '';
+  if (tab === 'menu') {
+    html += '<div class="grid-2">';
+    [
+      { id: 'turnos', title: 'Informe de Turnos', desc: 'Calendario mensual por empleado, letra y área', icon: '📅' },
+      { id: 'horas', title: 'Horas Trabajadas', desc: 'Cómputo de horas 8h/12h por período', icon: '⏱️' },
+      { id: 'vacaciones', title: 'Vacaciones', desc: 'Estado de rondas y días por empleado', icon: '🌴' },
+      { id: 'ausencias', title: 'Ausencias', desc: 'Registro de bajas y coberturas', icon: '🏥' },
+    ].forEach(function(r) {
+      html += '<div class="card" style="cursor:pointer" onclick="state.informeTab=\'' + r.id + '\';renderInformes()"><div class="card-body" style="display:flex;gap:16px;align-items:center">';
+      html += '<div style="font-size:32px">' + r.icon + '</div><div>';
+      html += '<div style="font-size:14px;font-weight:600;margin-bottom:4px">' + r.title + '</div>';
+      html += '<div style="font-size:12px;color:var(--text2)">' + r.desc + '</div></div></div></div>';
+    });
+    html += '</div>';
+  } else {
+    html += '<button class="btn btn-outline btn-sm" style="margin-bottom:16px" onclick="state.informeTab=\'menu\';renderInformes()">← Volver a informes</button>';
+    if (tab === 'turnos') html += renderInformeTurnos();
+    if (tab === 'horas') html += renderInformeHoras();
+    if (tab === 'vacaciones') html += renderInformeVacaciones();
+    if (tab === 'ausencias') html += renderInformeAusencias();
+  }
   document.getElementById('page-informes').innerHTML = html;
+}
+
+// ---- INFORME DE TURNOS ----
+function renderInformeTurnos() {
+  if (!state.infTurnosMes) state.infTurnosMes = new Date().getMonth();
+  if (!state.infTurnosYear) state.infTurnosYear = new Date().getFullYear();
+  if (!state.infTurnosLetra) state.infTurnosLetra = '';
+  if (!state.infTurnosArea) state.infTurnosArea = '';
+
+  var mes = state.infTurnosMes;
+  var year = state.infTurnosYear;
+  var diasMes = new Date(year, mes + 1, 0).getDate();
+  var nombresMes = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var dayNames = ['D','L','M','X','J','V','S'];
+
+  var emps = [...state.empleados];
+  if (state.infTurnosLetra) emps = emps.filter(function(e) { return e.letra_id === state.infTurnosLetra; });
+  if (state.infTurnosArea) emps = emps.filter(function(e) { return e.area_principal_id === state.infTurnosArea; });
+  emps.sort(function(a, b) {
+    var la = getLetra(a.letra_id), lb = getLetra(b.letra_id);
+    var na = la ? la.nombre : 'Z', nb = lb ? lb.nombre : 'Z';
+    if (na !== nb) return na.localeCompare(nb);
+    var aa = getArea(a.area_principal_id), ab = getArea(b.area_principal_id);
+    return (aa ? aa.orden : 99) - (ab ? ab.orden : 99);
+  });
+
+  var html = '<div class="card"><div class="card-header"><span class="card-title">📅 Informe de Turnos — ' + nombresMes[mes] + ' ' + year + '</span>';
+  html += '<button class="btn btn-sm btn-blue" onclick="imprimirInforme()">🖨 Imprimir PDF</button></div>';
+  html += '<div class="card-body">';
+
+  // Filtros
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">';
+  html += '<div class="cal-nav" style="display:flex;align-items:center;gap:8px">';
+  html += '<button class="cal-nav-btn" onclick="state.infTurnosMes--;if(state.infTurnosMes<0){state.infTurnosMes=11;state.infTurnosYear--;}renderInformes()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>';
+  html += '<span style="min-width:120px;text-align:center;font-weight:600">' + nombresMes[mes] + ' ' + year + '</span>';
+  html += '<button class="cal-nav-btn" onclick="state.infTurnosMes++;if(state.infTurnosMes>11){state.infTurnosMes=0;state.infTurnosYear++;}renderInformes()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button></div>';
+  html += '<select class="filter-select" onchange="state.infTurnosLetra=this.value;renderInformes()"><option value="">Todas las letras</option>';
+  state.letras.forEach(function(l) { html += '<option value="' + l.id + '"' + (state.infTurnosLetra === l.id ? ' selected' : '') + '>' + l.nombre + '</option>'; });
+  html += '</select>';
+  html += '<select class="filter-select" onchange="state.infTurnosArea=this.value;renderInformes()"><option value="">Todas las áreas</option>';
+  state.areas.forEach(function(a) { html += '<option value="' + a.id + '"' + (state.infTurnosArea === a.id ? ' selected' : '') + '>' + a.nombre + '</option>'; });
+  html += '</select></div>';
+
+  // Tabla
+  html += '<div id="informe-print" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">';
+  html += '<thead><tr><th style="padding:4px 8px;text-align:left;border:1px solid #ddd;background:#f0f4f8;min-width:140px">Empleado</th>';
+  html += '<th style="padding:4px;border:1px solid #ddd;background:#f0f4f8;width:30px">Letra</th>';
+  for (var d = 1; d <= diasMes; d++) {
+    var dd = new Date(year, mes, d);
+    var isWe = dd.getDay() === 0 || dd.getDay() === 6;
+    html += '<th style="padding:2px;border:1px solid #ddd;background:' + (isWe ? '#fee2e2' : '#f0f4f8') + ';width:24px;text-align:center;font-size:9px"><div>' + dayNames[dd.getDay()] + '</div><div>' + d + '</div></th>';
+  }
+  html += '</tr></thead><tbody>';
+
+  var curLetra = '';
+  emps.forEach(function(emp) {
+    var l = getLetra(emp.letra_id);
+    var ln = l ? l.nombre : '?';
+    if (ln !== curLetra) {
+      curLetra = ln;
+      html += '<tr><td colspan="' + (diasMes + 2) + '" style="padding:3px 8px;background:' + (l ? l.color + '15' : '#eee') + ';font-weight:700;font-size:10px;color:' + (l ? l.color : '#999') + ';border:1px solid #ddd">Letra ' + ln + '</td></tr>';
+    }
+    var a = getArea(emp.area_principal_id);
+    html += '<tr><td style="padding:3px 8px;border:1px solid #ddd;white-space:nowrap">' + emp.nombre + ' ' + emp.apellidos + '<br><span style="font-size:9px;color:#999">' + (a ? a.nombre : '') + '</span></td>';
+    html += '<td style="padding:2px;border:1px solid #ddd;text-align:center;font-weight:700;color:' + (l ? l.color : '#999') + '">' + ln + '</td>';
+    for (var d2 = 1; d2 <= diasMes; d2++) {
+      var ds = year + '-' + String(mes + 1).padStart(2, '0') + '-' + String(d2).padStart(2, '0');
+      var t = calcTurno(emp, ds);
+      var bg = {'M':'#dbeafe','T':'#fef3c7','N':'#1e1b4b','D':'#f1f5f9','R':'#dcfce7','V':'#fce7f3','B':'#fee2e2','S':'#fff7ed','L':'#1e1b4b'}[t] || '#fff';
+      var fg = {'M':'#1d4ed8','T':'#92400e','N':'#c7d2fe','D':'#94a3b8','R':'#166534','V':'#9d174d','B':'#991b1b','S':'#c2410c','L':'#a5b4fc'}[t] || '#ccc';
+      html += '<td style="padding:1px;border:1px solid #ddd;background:' + bg + ';color:' + fg + ';text-align:center;font-weight:700;font-size:10px">' + (t || '') + '</td>';
+    }
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  html += '</div></div>';
+  return html;
+}
+
+// ---- INFORME DE HORAS ----
+function renderInformeHoras() {
+  if (!state.infHorasMes) state.infHorasMes = new Date().getMonth();
+  if (!state.infHorasYear) state.infHorasYear = new Date().getFullYear();
+  if (!state.infHorasLetra) state.infHorasLetra = '';
+  if (!state.infHorasArea) state.infHorasArea = '';
+
+  var mes = state.infHorasMes;
+  var year = state.infHorasYear;
+  var diasMes = new Date(year, mes + 1, 0).getDate();
+  var nombresMes = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  var emps = [...state.empleados];
+  if (state.infHorasLetra) emps = emps.filter(function(e) { return e.letra_id === state.infHorasLetra; });
+  if (state.infHorasArea) emps = emps.filter(function(e) { return e.area_principal_id === state.infHorasArea; });
+  emps.sort(function(a, b) { var la = getLetra(a.letra_id), lb = getLetra(b.letra_id); return (la ? la.nombre : 'Z').localeCompare(lb ? lb.nombre : 'Z'); });
+
+  var html = '<div class="card"><div class="card-header"><span class="card-title">⏱️ Horas Trabajadas — ' + nombresMes[mes] + ' ' + year + '</span>';
+  html += '<button class="btn btn-sm btn-blue" onclick="imprimirInforme()">🖨 Imprimir PDF</button></div>';
+  html += '<div class="card-body">';
+
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">';
+  html += '<div class="cal-nav" style="display:flex;align-items:center;gap:8px">';
+  html += '<button class="cal-nav-btn" onclick="state.infHorasMes--;if(state.infHorasMes<0){state.infHorasMes=11;state.infHorasYear--;}renderInformes()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>';
+  html += '<span style="min-width:120px;text-align:center;font-weight:600">' + nombresMes[mes] + ' ' + year + '</span>';
+  html += '<button class="cal-nav-btn" onclick="state.infHorasMes++;if(state.infHorasMes>11){state.infHorasMes=0;state.infHorasYear++;}renderInformes()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button></div>';
+  html += '<select class="filter-select" onchange="state.infHorasLetra=this.value;renderInformes()"><option value="">Todas las letras</option>';
+  state.letras.forEach(function(l) { html += '<option value="' + l.id + '"' + (state.infHorasLetra === l.id ? ' selected' : '') + '>' + l.nombre + '</option>'; });
+  html += '</select>';
+  html += '<select class="filter-select" onchange="state.infHorasArea=this.value;renderInformes()"><option value="">Todas las áreas</option>';
+  state.areas.forEach(function(a) { html += '<option value="' + a.id + '"' + (state.infHorasArea === a.id ? ' selected' : '') + '>' + a.nombre + '</option>'; });
+  html += '</select></div>';
+
+  html += '<div id="informe-print" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+  html += '<thead><tr style="background:#f0f4f8"><th style="padding:8px;border:1px solid #ddd;text-align:left">Empleado</th>';
+  html += '<th style="padding:8px;border:1px solid #ddd">Letra</th><th style="padding:8px;border:1px solid #ddd">Área</th>';
+  html += '<th style="padding:8px;border:1px solid #ddd">M</th><th style="padding:8px;border:1px solid #ddd">T</th><th style="padding:8px;border:1px solid #ddd">N</th>';
+  html += '<th style="padding:8px;border:1px solid #ddd">R</th><th style="padding:8px;border:1px solid #ddd">S</th><th style="padding:8px;border:1px solid #ddd">L</th>';
+  html += '<th style="padding:8px;border:1px solid #ddd">Días trab.</th><th style="padding:8px;border:1px solid #ddd;font-weight:700">Total horas</th>';
+  html += '<th style="padding:8px;border:1px solid #ddd">D</th><th style="padding:8px;border:1px solid #ddd">V</th><th style="padding:8px;border:1px solid #ddd">B</th>';
+  html += '</tr></thead><tbody>';
+
+  emps.forEach(function(emp) {
+    var l = getLetra(emp.letra_id);
+    var a = getArea(emp.area_principal_id);
+    var counts = { M: 0, T: 0, N: 0, R: 0, S: 0, L: 0, D: 0, V: 0, B: 0 };
+    for (var d = 1; d <= diasMes; d++) {
+      var ds = year + '-' + String(mes + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      var t = calcTurno(emp, ds);
+      if (t && counts.hasOwnProperty(t)) counts[t]++;
+    }
+    var diasTrab = counts.M + counts.T + counts.N + counts.R + counts.S + counts.L;
+    var totalHoras = (counts.M + counts.T + counts.N + counts.R) * 8 + (counts.S + counts.L) * 12;
+
+    html += '<tr><td style="padding:6px 8px;border:1px solid #ddd;font-weight:600">' + emp.nombre + ' ' + emp.apellidos + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;color:' + (l ? l.color : '#999') + ';font-weight:700">' + (l ? l.nombre : '?') + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;font-size:11px">' + (a ? a.nombre : '') + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;background:#dbeafe">' + (counts.M || '') + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;background:#fef3c7">' + (counts.T || '') + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;background:#e0e7ff">' + (counts.N || '') + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;background:#dcfce7">' + (counts.R || '') + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;background:#fff7ed">' + (counts.S || '') + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;background:#e0e7ff">' + (counts.L || '') + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;font-weight:600">' + diasTrab + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;font-weight:700;font-size:14px">' + totalHoras + 'h</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;color:#94a3b8">' + (counts.D || '') + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;color:#9d174d">' + (counts.V || '') + '</td>';
+    html += '<td style="padding:6px;border:1px solid #ddd;text-align:center;color:#991b1b">' + (counts.B || '') + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div></div></div>';
+  return html;
+}
+
+// ---- INFORME DE VACACIONES ----
+function renderInformeVacaciones() {
+  if (!state.infVacYear) state.infVacYear = new Date().getFullYear();
+  if (!state.infVacLetra) state.infVacLetra = '';
+  if (!state.infVacArea) state.infVacArea = '';
+
+  var html = '<div class="card"><div class="card-header"><span class="card-title">🌴 Vacaciones — ' + state.infVacYear + '</span>';
+  html += '<button class="btn btn-sm btn-blue" onclick="imprimirInforme()">🖨 Imprimir PDF</button></div>';
+  html += '<div class="card-body">';
+
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">';
+  html += '<select class="filter-select" onchange="state.infVacLetra=this.value;renderInformes()"><option value="">Todas las letras</option>';
+  state.letras.forEach(function(l) { html += '<option value="' + l.id + '"' + (state.infVacLetra === l.id ? ' selected' : '') + '>' + l.nombre + '</option>'; });
+  html += '</select>';
+  html += '<select class="filter-select" onchange="state.infVacArea=this.value;renderInformes()"><option value="">Todas las áreas</option>';
+  state.areas.forEach(function(a) { html += '<option value="' + a.id + '"' + (state.infVacArea === a.id ? ' selected' : '') + '>' + a.nombre + '</option>'; });
+  html += '</select></div>';
+
+  // Load vacaciones data inline
+  html += '<div id="informe-print"><div id="inf-vac-loading"><div class="loading-center"><div class="spinner"></div></div></div></div>';
+  html += '</div></div>';
+
+  // Load async
+  setTimeout(function() { cargarInformeVacaciones(); }, 100);
+  return html;
+}
+
+async function cargarInformeVacaciones() {
+  var container = document.getElementById('inf-vac-loading');
+  if (!container) return;
+  try {
+    var solicitudes = await sbQuery('vacaciones_solicitudes', { select: '*', order: 'fecha_inicio.asc' });
+    var rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'numero_ronda.asc' });
+
+    var emps = [...state.empleados];
+    if (state.infVacLetra) emps = emps.filter(function(e) { return e.letra_id === state.infVacLetra; });
+    if (state.infVacArea) emps = emps.filter(function(e) { return e.area_principal_id === state.infVacArea; });
+    emps.sort(function(a, b) { var la = getLetra(a.letra_id), lb = getLetra(b.letra_id); return (la ? la.nombre : 'Z').localeCompare(lb ? lb.nombre : 'Z'); });
+
+    var thtml = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    thtml += '<thead><tr style="background:#f0f4f8"><th style="padding:8px;border:1px solid #ddd;text-align:left">Empleado</th>';
+    thtml += '<th style="padding:8px;border:1px solid #ddd">Letra</th><th style="padding:8px;border:1px solid #ddd">Área</th>';
+    rondas.forEach(function(r) {
+      thtml += '<th style="padding:8px;border:1px solid #ddd">R' + r.numero_ronda + ' Fechas</th>';
+      thtml += '<th style="padding:8px;border:1px solid #ddd">R' + r.numero_ronda + ' Estado</th>';
+    });
+    thtml += '<th style="padding:8px;border:1px solid #ddd;font-weight:700">Total días</th></tr></thead><tbody>';
+
+    emps.forEach(function(emp) {
+      var l = getLetra(emp.letra_id);
+      var a = getArea(emp.area_principal_id);
+      var totalDias = 0;
+      thtml += '<tr><td style="padding:6px 8px;border:1px solid #ddd;font-weight:600">' + emp.nombre + ' ' + emp.apellidos + '</td>';
+      thtml += '<td style="padding:6px;border:1px solid #ddd;text-align:center;color:' + (l ? l.color : '#999') + ';font-weight:700">' + (l ? l.nombre : '?') + '</td>';
+      thtml += '<td style="padding:6px;border:1px solid #ddd;font-size:11px">' + (a ? a.nombre : '') + '</td>';
+      rondas.forEach(function(r) {
+        var sol = solicitudes.find(function(s) { return s.empleado_id === emp.id && s.ronda_id === r.id && s.estado !== 'rechazada'; });
+        if (sol) {
+          totalDias += sol.dias_solicitados;
+          thtml += '<td style="padding:6px;border:1px solid #ddd;font-size:11px">' + formatDateES(sol.fecha_inicio) + ' – ' + formatDateES(sol.fecha_fin) + '</td>';
+          thtml += '<td style="padding:6px;border:1px solid #ddd;text-align:center"><span class="status-badge ' + sol.estado + '">' + sol.estado + '</span></td>';
+        } else {
+          thtml += '<td style="padding:6px;border:1px solid #ddd;text-align:center;color:#ccc">—</td>';
+          thtml += '<td style="padding:6px;border:1px solid #ddd;text-align:center;color:#ccc">—</td>';
+        }
+      });
+      thtml += '<td style="padding:6px;border:1px solid #ddd;text-align:center;font-weight:700;font-size:14px">' + totalDias + '</td></tr>';
+    });
+    thtml += '</tbody></table>';
+    container.innerHTML = thtml;
+  } catch(e) { container.innerHTML = '<div class="alert alert-danger"><span>Error cargando datos</span></div>'; }
+}
+
+// ---- INFORME DE AUSENCIAS ----
+function renderInformeAusencias() {
+  if (!state.infAusDesde) state.infAusDesde = new Date().getFullYear() + '-01-01';
+  if (!state.infAusHasta) state.infAusHasta = new Date().getFullYear() + '-12-31';
+  if (!state.infAusTipo) state.infAusTipo = '';
+
+  var html = '<div class="card"><div class="card-header"><span class="card-title">🏥 Ausencias</span>';
+  html += '<button class="btn btn-sm btn-blue" onclick="imprimirInforme()">🖨 Imprimir PDF</button></div>';
+  html += '<div class="card-body">';
+
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">';
+  html += '<div class="form-group" style="margin:0"><label class="form-label" style="margin-bottom:2px">Desde</label><input type="date" class="form-input" value="' + state.infAusDesde + '" onchange="state.infAusDesde=this.value;renderInformes()" style="padding:5px 8px;font-size:12px"></div>';
+  html += '<div class="form-group" style="margin:0"><label class="form-label" style="margin-bottom:2px">Hasta</label><input type="date" class="form-input" value="' + state.infAusHasta + '" onchange="state.infAusHasta=this.value;renderInformes()" style="padding:5px 8px;font-size:12px"></div>';
+  html += '<div class="form-group" style="margin:0"><label class="form-label" style="margin-bottom:2px">Tipo</label><select class="filter-select" onchange="state.infAusTipo=this.value;renderInformes()"><option value="">Todos</option>';
+  if (state.tiposAusencia) state.tiposAusencia.forEach(function(t) { html += '<option value="' + t + '"' + (state.infAusTipo === t ? ' selected' : '') + '>' + t + '</option>'; });
+  html += '</select></div></div>';
+
+  html += '<div id="informe-print"><div id="inf-aus-loading"><div class="loading-center"><div class="spinner"></div></div></div></div>';
+  html += '</div></div>';
+  setTimeout(function() { cargarInformeAusencias(); }, 100);
+  return html;
+}
+
+async function cargarInformeAusencias() {
+  var container = document.getElementById('inf-aus-loading');
+  if (!container) return;
+  try {
+    var filters = ['fecha_inicio=gte.' + state.infAusDesde, 'fecha_fin=lte.' + state.infAusHasta];
+    if (state.infAusTipo) filters.push('tipo=eq.' + state.infAusTipo);
+    var ausencias = await sbQuery('ausencias', { select: '*', filters: filters, order: 'fecha_inicio.desc' });
+
+    var thtml = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    thtml += '<thead><tr style="background:#f0f4f8"><th style="padding:8px;border:1px solid #ddd;text-align:left">Empleado</th>';
+    thtml += '<th style="padding:8px;border:1px solid #ddd">Letra</th><th style="padding:8px;border:1px solid #ddd">Tipo</th>';
+    thtml += '<th style="padding:8px;border:1px solid #ddd">Desde</th><th style="padding:8px;border:1px solid #ddd">Hasta</th>';
+    thtml += '<th style="padding:8px;border:1px solid #ddd">Días</th><th style="padding:8px;border:1px solid #ddd">Cobertura</th>';
+    thtml += '<th style="padding:8px;border:1px solid #ddd">Motivo</th></tr></thead><tbody>';
+
+    if (!ausencias || ausencias.length === 0) {
+      thtml += '<tr><td colspan="8" style="text-align:center;padding:20px;color:#999">Sin ausencias en este período</td></tr>';
+    }
+    var totalDias = 0;
+    (ausencias || []).forEach(function(a) {
+      var emp = state.empleados.find(function(e) { return e.id === a.empleado_id; });
+      var l = emp ? getLetra(emp.letra_id) : null;
+      var dias = Math.round((new Date(a.fecha_fin + 'T12:00:00') - new Date(a.fecha_inicio + 'T12:00:00')) / 86400000) + 1;
+      totalDias += dias;
+      thtml += '<tr><td style="padding:6px 8px;border:1px solid #ddd;font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</td>';
+      thtml += '<td style="padding:6px;border:1px solid #ddd;text-align:center;color:' + (l ? l.color : '#999') + ';font-weight:700">' + (l ? l.nombre : '?') + '</td>';
+      thtml += '<td style="padding:6px;border:1px solid #ddd"><span class="status-badge closed">' + a.tipo + '</span></td>';
+      thtml += '<td style="padding:6px;border:1px solid #ddd;font-size:11px">' + formatDateES(a.fecha_inicio) + '</td>';
+      thtml += '<td style="padding:6px;border:1px solid #ddd;font-size:11px">' + formatDateES(a.fecha_fin) + '</td>';
+      thtml += '<td style="padding:6px;border:1px solid #ddd;text-align:center;font-weight:600">' + dias + '</td>';
+      thtml += '<td style="padding:6px;border:1px solid #ddd;font-size:11px">' + (a.cobertura_tipo || '—') + '</td>';
+      thtml += '<td style="padding:6px;border:1px solid #ddd;font-size:11px;color:#666">' + (a.motivo || '—') + '</td></tr>';
+    });
+    thtml += '<tr style="background:#f0f4f8;font-weight:700"><td colspan="5" style="padding:6px 8px;border:1px solid #ddd;text-align:right">TOTAL</td>';
+    thtml += '<td style="padding:6px;border:1px solid #ddd;text-align:center">' + totalDias + ' días</td><td colspan="2" style="border:1px solid #ddd"></td></tr>';
+    thtml += '</tbody></table>';
+    container.innerHTML = thtml;
+  } catch(e) { container.innerHTML = '<div class="alert alert-danger"><span>Error cargando datos</span></div>'; }
+}
+
+// ---- IMPRIMIR ----
+function imprimirInforme() {
+  var content = document.getElementById('informe-print');
+  if (!content) { showToast('Nada que imprimir', 'error'); return; }
+  var win = window.open('', '_blank');
+  win.document.write('<html><head><title>TurnoX — Informe</title>');
+  win.document.write('<style>body{font-family:-apple-system,sans-serif;padding:20px;font-size:12px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4px 6px}th{background:#f0f4f8;font-size:11px}.status-badge{display:inline-block;padding:2px 6px;border-radius:10px;font-size:10px;font-weight:600}.status-badge.aprobada,.status-badge.approved,.status-badge.open{background:#dcfce7;color:#166534}.status-badge.pendiente,.status-badge.pending{background:#fef3c7;color:#92400e}.status-badge.rechazada,.status-badge.rejected,.status-badge.closed{background:#fee2e2;color:#991b1b}@media print{body{padding:0}}</style>');
+  win.document.write('</head><body>');
+  win.document.write('<h2 style="margin:0 0 12px;font-size:16px">TurnoX — ' + document.querySelector('.card-title')?.textContent + '</h2>');
+  win.document.write(content.innerHTML);
+  win.document.write('</body></html>');
+  win.document.close();
+  win.print();
 }
 
 // =====================================================================
