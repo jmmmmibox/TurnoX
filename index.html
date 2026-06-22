@@ -144,46 +144,37 @@ a { color: inherit; text-decoration: none; }
 .sidebar {
   position: fixed;
   left: 0; top: 0; bottom: 0;
-  width: var(--sidebar-w);
+  width: 56px;
   background: var(--primary);
   display: flex;
   flex-direction: column;
   z-index: 100;
-  transition: width 0.25s, transform 0.3s;
+  transition: width 0.25s ease;
   overflow: hidden;
 }
-.sidebar.collapsed {
-  width: 56px;
+.sidebar:hover {
+  width: var(--sidebar-w);
 }
-.sidebar.collapsed .sidebar-logo h2,
-.sidebar.collapsed .sidebar-logo p,
-.sidebar.collapsed .nav-section-label,
-.sidebar.collapsed .nav-item span,
-.sidebar.collapsed .nav-badge,
-.sidebar.collapsed .user-info,
-.sidebar.collapsed .btn-logout { display: none; }
-.sidebar.collapsed .nav-item { justify-content: center; padding: 10px; }
-.sidebar.collapsed .sidebar-user { justify-content: center; }
-.sidebar.collapsed .sidebar-logo { padding: 16px 12px; text-align: center; }
-.sidebar-collapse-btn {
-  position: absolute;
-  top: 16px;
-  right: -12px;
-  width: 24px; height: 24px;
-  background: var(--primary);
-  border: 2px solid var(--bg);
-  border-radius: 50%;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 101;
-  font-size: 11px;
-  transition: transform 0.25s;
-}
-.sidebar.collapsed + .main-content { margin-left: 56px; }
-.sidebar.collapsed .sidebar-collapse-btn { transform: rotate(180deg); }
+.sidebar .sidebar-logo h2,
+.sidebar .sidebar-logo p,
+.sidebar .nav-section-label,
+.sidebar .nav-item span,
+.sidebar .nav-badge,
+.sidebar .user-info,
+.sidebar .btn-logout { opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.sidebar:hover .sidebar-logo h2,
+.sidebar:hover .sidebar-logo p,
+.sidebar:hover .nav-section-label,
+.sidebar:hover .nav-item span,
+.sidebar:hover .nav-badge,
+.sidebar:hover .user-info,
+.sidebar:hover .btn-logout { opacity: 1; pointer-events: auto; }
+.sidebar .nav-item { justify-content: center; padding: 10px; transition: all 0.15s; }
+.sidebar:hover .nav-item { justify-content: flex-start; padding: 9px 12px; }
+.sidebar .sidebar-user { justify-content: center; transition: all 0.15s; }
+.sidebar:hover .sidebar-user { justify-content: flex-start; }
+.sidebar .sidebar-logo { padding: 16px 12px; text-align: center; transition: all 0.15s; }
+.sidebar:hover .sidebar-logo { padding: 20px 20px 16px; text-align: left; }
 .sidebar-logo {
   padding: 20px 20px 16px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
@@ -254,10 +245,11 @@ a { color: inherit; text-decoration: none; }
 
 /* ===================== MAIN ===================== */
 .main-content {
-  margin-left: var(--sidebar-w);
+  margin-left: 56px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  transition: margin-left 0.25s;
 }
 .topbar {
   height: var(--header-h);
@@ -929,7 +921,6 @@ td.col-descubierto { background: #FEF2F2 !important; }
   
   <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
-    <button class="sidebar-collapse-btn" onclick="collapseSidebar()" title="Ocultar/Mostrar menú">◀</button>
     <div class="sidebar-logo">
       <h2>TurnoX</h2>
       <p id="sidebar-planta">Planta Huelva</p>
@@ -3874,21 +3865,48 @@ function updateNavBadges() {
 function toggleNotifs() {
   const dd = document.getElementById('notif-dropdown');
   dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
-  if (dd.style.display === 'block') {
-    if (state.notificaciones.length === 0) {
-      document.getElementById('notif-list').innerHTML = '<div class="notif-empty">Sin notificaciones</div>';
-    } else {
-      document.getElementById('notif-list').innerHTML = state.notificaciones.slice(0, 8).map(n =>
-        '<div class="notif-item' + (n.leida ? '' : ' unread') + '"><div class="notif-text"><strong>' + n.titulo + '</strong><br>' + n.mensaje + '</div></div>'
-      ).join('');
-    }
-  }
+  if (dd.style.display === 'block') renderNotifList();
 }
 
-function markAllRead() {
-  state.notificaciones.forEach(n => n.leida = true);
+function renderNotifList() {
+  var list = document.getElementById('notif-list');
+  if (state.notificaciones.length === 0) {
+    list.innerHTML = '<div class="notif-empty">Sin notificaciones</div>';
+    return;
+  }
+  list.innerHTML = state.notificaciones.slice(0, 10).map(function(n, i) {
+    return '<div class="notif-item' + (n.leida ? '' : ' unread') + '" style="display:flex;align-items:start;gap:8px">' +
+      '<div style="flex:1"><div class="notif-text"><strong>' + n.titulo + '</strong><br>' + n.mensaje + '</div>' +
+      '<div class="notif-time">' + (n.created_at ? new Date(n.created_at).toLocaleDateString('es-ES') : '') + '</div></div>' +
+      (!n.leida ? '<button style="background:none;border:none;color:var(--success);cursor:pointer;font-size:14px;padding:2px;flex-shrink:0" onclick="marcarNotifLeida(' + i + ')" title="Marcar como leída">✓</button>' : '') +
+      '</div>';
+  }).join('');
+}
+
+async function marcarNotifLeida(idx) {
+  var n = state.notificaciones[idx];
+  if (!n) return;
+  n.leida = true;
+  // Actualizar en BD si tiene id
+  if (n.id) {
+    try { await sbUpdate('notificaciones', n.id, { leida: true }); } catch(e) {}
+  }
   updateNotifBadge();
-  toggleNotifs();
+  updateNavBadges();
+  renderNotifList();
+}
+
+async function markAllRead() {
+  for (var i = 0; i < state.notificaciones.length; i++) {
+    var n = state.notificaciones[i];
+    n.leida = true;
+    if (n.id) {
+      try { await sbUpdate('notificaciones', n.id, { leida: true }); } catch(e) {}
+    }
+  }
+  updateNotifBadge();
+  updateNavBadges();
+  renderNotifList();
 }
 
 // =====================================================================
@@ -3979,18 +3997,6 @@ async function guardarCambioPassword() {
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('mobile-overlay').classList.remove('show');
-}
-
-function collapseSidebar() {
-  var sb = document.getElementById('sidebar');
-  sb.classList.toggle('collapsed');
-  // Save preference
-  localStorage.setItem('sidebar-collapsed', sb.classList.contains('collapsed') ? '1' : '0');
-}
-
-// Restore sidebar state on load
-if (localStorage.getItem('sidebar-collapsed') === '1') {
-  document.getElementById('sidebar').classList.add('collapsed');
 }
 
 // Close notification dropdown on outside click
