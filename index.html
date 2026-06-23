@@ -415,14 +415,14 @@ a { color: inherit; text-decoration: none; }
   background: white;
 }
 
-.cal-table-wrap { overflow-x: auto; max-height: 80vh; overflow-y: auto; position: relative; }
+.cal-table-wrap { overflow: auto; max-height: 80vh; position: relative; -webkit-overflow-scrolling: touch; }
 .cal-table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   min-width: 900px;
 }
-.cal-table thead { position: sticky; top: 0; z-index: 5; }
+.cal-table thead th { position: -webkit-sticky; position: sticky; top: 0; z-index: 5; background: white; }
 .cal-table th {
   padding: 8px 4px;
   font-size: 11px;
@@ -433,10 +433,7 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
   background: white;
 }
-.cal-table th.day-header {
-  width: 36px;
-  font-size: 10px;
-}
+.cal-table th.day-header { width: 36px; font-size: 10px; }
 .cal-table th.day-header.weekend { color: var(--danger); }
 .cal-table th.day-header.festivo { background: #FEF9C3; }
 .cal-table td {
@@ -449,13 +446,21 @@ a { color: inherit; text-decoration: none; }
   text-align: left;
   padding: 6px 12px;
   white-space: nowrap;
+  position: -webkit-sticky;
   position: sticky;
   left: 0;
   z-index: 3;
   background: white;
-  border-right: 2px solid var(--border);
-  min-width: 160px;
-  box-shadow: 2px 0 4px rgba(0,0,0,0.04);
+  border-right: 2px solid #CBD5E1;
+  min-width: 180px;
+  max-width: 220px;
+  box-shadow: 4px 0 8px rgba(0,0,0,0.08);
+}
+.cal-table td.letra-sep {
+  position: -webkit-sticky;
+  position: sticky;
+  left: 0;
+  z-index: 2;
 }
 .cal-table tr:hover td { background: var(--surface2); }
 .cal-table tr:hover td.emp-info { background: var(--surface2); }
@@ -1761,7 +1766,7 @@ function renderCalendarioInner() {
   }
 
   html += '<div class="cal-table-wrap"><table class="cal-table"><thead><tr>';
-  html += '<th style="text-align:left;padding:8px 12px;min-width:170px;position:sticky;left:0;top:0;background:white;z-index:15">Empleado</th>';
+  html += '<th style="text-align:left;padding:8px 12px;min-width:180px;position:-webkit-sticky;position:sticky;left:0;top:0;background:white;z-index:15;box-shadow:4px 0 8px rgba(0,0,0,0.08)">Empleado</th>';
   dias.forEach(d => {
     const desc = diasDescubiertos[d.ds];
     html += '<th class="day-header' + (d.isWeekend ? ' weekend' : '') + (d.isFestivo ? ' festivo' : '') + (desc ? ' descubierto' : '') + '"' + (desc ? ' onclick="mostrarDescubierto(\'' + d.ds + '\')" style="cursor:pointer"' : '') + '>';
@@ -1792,7 +1797,7 @@ function renderCalendarioInner() {
       }
     }
 
-    html += '<tr><td colspan="' + (diasMes + 1) + '" style="background:#F8FAFC;padding:4px 12px;font-size:11px;font-weight:700;color:' + letra.color + ';border-bottom:1px solid var(--border)">' + letraHeader + '</td></tr>';
+    html += '<tr><td class="letra-sep" colspan="' + (diasMes + 1) + '" style="background:#F8FAFC;padding:4px 12px;font-size:11px;font-weight:700;color:' + letra.color + ';border-bottom:1px solid var(--border)">' + letraHeader + '</td></tr>';
     le.forEach(emp => {
       const area = getArea(emp.area_principal_id);
 
