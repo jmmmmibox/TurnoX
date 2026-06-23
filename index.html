@@ -996,6 +996,7 @@ td.col-descubierto { background: #FEF2F2 !important; }
       <div class="page" id="page-mi-turno"></div>
       <div class="page" id="page-mi-calendario"></div>
       <div class="page" id="page-mis-solicitudes"></div>
+      <div class="page" id="page-mi-usuario"></div>
     </div>
   </main>
 </div>
@@ -1390,11 +1391,13 @@ const NAV_GESTOR = [
 ];
 
 const NAV_EMPLEADO = [
-  { id: 'mi-turno', label: 'Mi Turno', icon: 'clock' },
+  { id: 'mi-turno', label: 'Mi Turno', icon: 'home' },
   { id: 'mi-calendario', label: 'Mi Calendario', icon: 'calendar' },
   { id: 'calendario', label: 'Calendario Planta', icon: 'grid' },
   { separator: 'Solicitudes' },
   { id: 'mis-solicitudes', label: 'Mis Solicitudes', icon: 'file-text' },
+  { separator: 'Cuenta' },
+  { id: 'mi-usuario', label: 'Mi Usuario', icon: 'settings' },
 ];
 
 function getIcon(name) {
@@ -1443,6 +1446,7 @@ function navigateTo(page) {
     'informes': 'Informes', 'configuracion': 'Configuración',
     'mi-turno': 'Mi Turno', 'mi-calendario': 'Mi Calendario',
     'mis-solicitudes': 'Mis Solicitudes',
+    'mi-usuario': 'Mi Usuario',
   };
   document.getElementById('page-title').textContent = titles[page] || page;
   closeSidebar();
@@ -1462,6 +1466,7 @@ function renderPage(page) {
     'mi-turno': renderMiTurno,
     'mi-calendario': renderMiCalendario,
     'mis-solicitudes': renderMisSolicitudes,
+    'mi-usuario': renderMiUsuario,
   };
   if (renders[page]) renders[page]();
 }
@@ -2863,7 +2868,7 @@ function renderConfiguracion() {
 }
 
 // =====================================================================
-// MI TURNO (empleado)
+// MI TURNO (empleado) — turno de hoy + dashboard completo
 // =====================================================================
 function renderMiTurno() {
   const emp = state.user.empleadoData || state.empleados.find(e => e.id === state.user.id);
@@ -2873,44 +2878,181 @@ function renderMiTurno() {
   const t = calcTurno(emp, hoy);
   const letra = getLetra(emp.letra_id);
   const area = getArea(emp.area_principal_id);
+  var horario = {'M':'06:00 – 14:00','T':'14:00 – 22:00','N':'22:00 – 06:00','S':'06:00 – 18:00','L':'18:00 – 06:00','R':'06:00 – 14:00'}[t] || '';
 
+  // Card de turno de hoy
   let html = '<div class="my-turno-today"><div style="display:flex;justify-content:space-between;align-items:flex-start">';
   html += '<div><div style="font-size:12px;opacity:0.6;text-transform:uppercase;letter-spacing:1px">Hoy, ' + formatDateES(hoy) + '</div>';
   html += '<div class="turno-big">' + (t || '?') + '</div>';
   html += '<div class="turno-name">' + turnoLabel(t) + '</div>';
   html += '<div class="turno-date">Letra ' + (letra ? letra.nombre : '?') + ' · ' + (area ? area.nombre : '?') + '</div></div>';
-  html += '<div style="text-align:right;opacity:0.7">' + (t === 'M' ? '06:00 – 14:00' : t === 'T' ? '14:00 – 22:00' : t === 'N' ? '22:00 – 06:00' : '') + '</div>';
+  html += '<div style="text-align:right;opacity:0.7">' + horario + '</div>';
   html += '</div></div>';
 
-  html += '<h3 style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px">PRÓXIMOS 7 DÍAS</h3>';
-  html += '<div class="proximos-grid">';
-  const dayNames = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(); d.setDate(d.getDate() + i);
-    const ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    const pt = calcTurno(emp, ds);
-    html += '<div class="proximo-day' + (i === 0 ? ' today' : '') + '">';
-    html += '<div class="day-name">' + dayNames[d.getDay()] + '</div>';
-    html += '<div class="day-num">' + d.getDate() + '</div>';
-    html += '<span class="turno-badge ' + (pt || 'D') + '">' + (pt || 'D') + '</span></div>';
-  }
+  // Dashboard completo — igual que el gestor
+  if (!state.dashFechaEmp) state.dashFechaEmp = todayStr();
+  var fechaVer = state.dashFechaEmp;
+  var esHoy = fechaVer === todayStr();
+
+  var empTurnos = state.empleados.map(function(e) {
+    var turno2 = calcTurno(e, fechaVer);
+    var turnoEditado = state.turnosEditados.find(function(te) { return te.empleado_id === e.id && te.fecha === fechaVer; });
+    var areaRealId = (turnoEditado && turnoEditado.area_id) ? turnoEditado.area_id : e.area_principal_id;
+    return { emp: e, turno: turno2, areaRealId: areaRealId };
+  });
+  var trabajando = empTurnos.filter(function(et) { return ['M','T','N','R','S','L'].includes(et.turno); });
+  var enBaja = empTurnos.filter(function(et) { return et.turno === 'B' || et.turno === 'V'; });
+  var manana = empTurnos.filter(function(et) { return et.turno === 'M'; });
+  var tarde = empTurnos.filter(function(et) { return et.turno === 'T'; });
+  var noche = empTurnos.filter(function(et) { return et.turno === 'N'; });
+  var refuerzo = empTurnos.filter(function(et) { return et.turno === 'R'; });
+  var solE = empTurnos.filter(function(et) { return et.turno === 'S'; });
+  var lunaE = empTurnos.filter(function(et) { return et.turno === 'L'; });
+
+  // Selector de fecha
+  html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;margin-top:20px">';
+  html += '<button class="cal-nav-btn" onclick="state.dashFechaEmp=shiftDate(state.dashFechaEmp,-1);renderMiTurno()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>';
+  html += '<input type="date" class="form-input" value="' + fechaVer + '" onchange="state.dashFechaEmp=this.value;renderMiTurno()" style="padding:6px 10px;font-size:13px;font-weight:600;width:160px;text-align:center">';
+  html += '<button class="cal-nav-btn" onclick="state.dashFechaEmp=shiftDate(state.dashFechaEmp,1);renderMiTurno()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>';
+  if (!esHoy) html += '<button class="btn btn-sm btn-outline" onclick="state.dashFechaEmp=todayStr();renderMiTurno()">Hoy</button>';
+  html += '<span style="font-size:13px;color:var(--text2)">' + formatDateES(fechaVer) + (esHoy ? ' <strong style="color:var(--primary-light)">(hoy)</strong>' : '') + '</span>';
   html += '</div>';
 
-  html += '<div class="grid-2"><div class="card"><div class="card-header"><span class="card-title">Mis datos</span></div><div class="card-body">';
-  html += '<div style="display:flex;flex-direction:column;gap:10px;font-size:13px">';
-  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Nombre</span><span style="font-weight:600">' + emp.nombre + ' ' + emp.apellidos + '</span></div>';
-  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Usuario</span><code>' + emp.username + '</code></div>';
-  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Letra</span><span class="letra-badge" style="background:' + (letra ? letra.color + '22' : '#eee') + ';color:' + (letra ? letra.color : '#999') + '">' + (letra ? letra.nombre : '?') + '</span></div>';
-  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Área</span><span style="font-weight:600">' + (area ? area.nombre : '—') + '</span></div>';
-  html += '</div></div></div>';
+  // Ausentes
+  if (enBaja.length > 0) {
+    html += '<div class="alert alert-warning" style="margin-bottom:16px"><span><strong>' + enBaja.length + ' ausente' + (enBaja.length > 1 ? 's' : '') + ':</strong> ';
+    html += enBaja.map(function(et) { return et.emp.nombre + ' ' + et.emp.apellidos; }).join(', ');
+    html += '</span></div>';
+  }
 
-  html += '<div class="card"><div class="card-header"><span class="card-title">Acciones</span></div><div class="card-body" style="display:flex;flex-direction:column;gap:8px">';
-  html += '<button class="btn btn-outline w-full" onclick="navigateTo(\'mi-calendario\')">Ver mi calendario</button>';
-  html += '<button class="btn btn-outline w-full" onclick="navigateTo(\'mis-solicitudes\')">Mis solicitudes</button>';
-  html += '<button class="btn btn-outline w-full" onclick="modalCambiarPassword()">Cambiar contraseña</button>';
-  html += '</div></div></div>';
+  html += '<div class="dashboard-grid">';
+
+  // Tabla de turnos
+  html += '<div class="card"><div class="card-header"><span class="card-title">' + formatDateES(fechaVer) + '</span></div>';
+  html += '<div style="overflow-x:auto">';
+
+  [
+    { tipo: 'M', label: 'Mañana · 06:00–14:00', color: 'var(--turno-M)', textColor: 'var(--turno-M-text)', list: manana },
+    { tipo: 'S', label: 'Sol · 06:00–18:00 (12h)', color: 'var(--turno-S)', textColor: 'var(--turno-S-text)', list: solE },
+    { tipo: 'T', label: 'Tarde · 14:00–22:00', color: 'var(--turno-T)', textColor: 'var(--turno-T-text)', list: tarde },
+    { tipo: 'L', label: 'Luna · 18:00–06:00 (12h)', color: 'var(--turno-L)', textColor: 'var(--turno-L-text)', list: lunaE },
+    { tipo: 'N', label: 'Noche · 22:00–06:00', color: 'var(--turno-N)', textColor: 'var(--turno-N-text)', list: noche },
+    { tipo: 'R', label: 'Equipo de Refuerzo', color: 'var(--turno-R)', textColor: 'var(--turno-R-text)', list: refuerzo },
+  ].forEach(function(turno) {
+    if (turno.list.length === 0) return;
+    html += '<div style="padding:6px 16px;background:' + turno.color + ';display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">';
+    html += '<span style="font-size:12px;font-weight:700;color:' + turno.textColor + '">' + turno.label + '</span>';
+    html += '<span style="font-size:11px;font-weight:600;color:' + turno.textColor + '">' + turno.list.length + '</span></div>';
+    state.areas.forEach(function(areaG) {
+      var enArea = turno.list.filter(function(et) { return et.areaRealId === areaG.id; });
+      if (enArea.length === 0) return;
+      enArea.forEach(function(et) {
+        var l2 = getLetra(et.emp.letra_id);
+        var areaReal = getArea(et.areaRealId);
+        var esMiEmp = et.emp.id === emp.id;
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid var(--border);' + (esMiEmp ? 'background:#EFF6FF;' : '') + '">';
+        html += '<div class="emp-avatar" style="background:' + (l2 ? l2.color : '#64748B') + ';width:28px;height:28px;font-size:10px">' + (et.emp.nombre[0] || '') + (et.emp.apellidos[0] || '') + '</div>';
+        html += '<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">' + (esMiEmp ? '→ ' : '') + et.emp.nombre + ' ' + et.emp.apellidos + '</div></div>';
+        html += '<span class="letra-badge" style="background:' + (l2 ? l2.color + '22' : '#eee') + ';color:' + (l2 ? l2.color : '#999') + '">' + (l2 ? l2.nombre : '?') + '</span>';
+        html += '<span style="font-size:11px;color:var(--text2);min-width:70px;text-align:right">' + (areaReal ? areaReal.nombre : '—') + '</span>';
+        html += '</div>';
+      });
+    });
+  });
+  html += '</div></div>';
+
+  // Resumen cobertura
+  html += '<div style="display:flex;flex-direction:column;gap:16px">';
+  [
+    { tipo: 'M', label: 'Mañana', list: manana, extras: solE, color: 'var(--turno-M-text)', bg: 'var(--turno-M)' },
+    { tipo: 'T', label: 'Tarde', list: tarde, extras: solE.concat(lunaE), color: 'var(--turno-T-text)', bg: 'var(--turno-T)' },
+    { tipo: 'N', label: 'Noche', list: noche, extras: lunaE, color: 'var(--turno-N-text)', bg: 'var(--turno-N)' },
+  ].forEach(function(turno) {
+    var combined = turno.list.concat(turno.extras);
+    if (combined.length === 0) return;
+    html += '<div class="card"><div class="card-header" style="background:' + turno.bg + '">';
+    html += '<span class="card-title" style="color:' + turno.color + '">Áreas — ' + turno.label + '</span>';
+    var allCovered = state.areas.every(function(a) { return combined.some(function(et) { return et.areaRealId === a.id; }); });
+    if (allCovered) html += '<span style="font-size:11px;font-weight:700;color:#166534;background:#DCFCE7;padding:2px 8px;border-radius:10px">✓ OK</span>';
+    else html += '<span style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:2px 8px;border-radius:10px">⚠ Incompleto</span>';
+    html += '</div><div class="card-body" style="padding:8px 16px">';
+    state.areas.forEach(function(areaC) {
+      var count = combined.filter(function(et) { return et.areaRealId === areaC.id; }).length;
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)">';
+      html += '<div style="display:flex;align-items:center;gap:6px"><div style="width:6px;height:6px;border-radius:50%;background:' + areaC.color + '"></div>';
+      html += '<span style="font-size:12px">' + areaC.nombre + '</span></div>';
+      html += '<span style="font-size:12px;font-weight:700;color:' + (count > 0 ? 'var(--success)' : 'var(--danger)') + '">' + count + '</span></div>';
+    });
+    html += '</div></div>';
+  });
+  html += '</div></div>';
 
   document.getElementById('page-mi-turno').innerHTML = html;
+}
+
+// =====================================================================
+// MI USUARIO (empleado)
+// =====================================================================
+function renderMiUsuario() {
+  var emp = state.user.empleadoData || state.empleados.find(function(e) { return e.id === state.user.id; });
+  if (!emp) { document.getElementById('page-mi-usuario').innerHTML = '<div class="empty-state"><p>Cargando...</p></div>'; return; }
+
+  var letra = getLetra(emp.letra_id);
+  var area = getArea(emp.area_principal_id);
+  var polivs = state.polivalencias.filter(function(p) { return p.empleado_id === emp.id; }).map(function(p) { var a = getArea(p.area_id); return a ? a.nombre : ''; }).filter(Boolean);
+
+  var html = '<div class="grid-2">';
+
+  // Datos personales
+  html += '<div class="card"><div class="card-header"><span class="card-title">Mis datos</span></div><div class="card-body">';
+  html += '<div style="display:flex;flex-direction:column;gap:12px;font-size:13px">';
+  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Nombre</span><span style="font-weight:600">' + emp.nombre + ' ' + emp.apellidos + '</span></div>';
+  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Usuario</span><code style="background:var(--bg);padding:2px 6px;border-radius:4px">' + emp.username + '</code></div>';
+  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Letra</span><span class="letra-badge" style="background:' + (letra ? letra.color + '22' : '#eee') + ';color:' + (letra ? letra.color : '#999') + '">' + (letra ? letra.nombre : '?') + '</span></div>';
+  html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Área principal</span><span style="font-weight:600">' + (area ? area.nombre : '—') + '</span></div>';
+  if (polivs.length > 0) {
+    html += '<div style="display:flex;justify-content:space-between;align-items:start"><span style="color:var(--text2)">Polivalencias</span><div class="poliv-tags" style="justify-content:flex-end">';
+    polivs.forEach(function(p) { html += '<span class="poliv-tag">' + p + '</span>'; });
+    html += '</div></div>';
+  }
+  if (emp.telefono) html += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Teléfono</span><span>' + emp.telefono + '</span></div>';
+  html += '</div></div></div>';
+
+  // Cambiar contraseña
+  html += '<div class="card"><div class="card-header"><span class="card-title">Seguridad</span></div><div class="card-body">';
+  html += '<div style="font-size:13px;color:var(--text2);margin-bottom:16px">Cambia tu contraseña de acceso a TurnoX.</div>';
+  html += '<div class="form-group"><label class="form-label">Contraseña actual</label>';
+  html += '<div class="pass-wrap"><input type="password" class="form-input" id="mu-pass-actual">';
+  html += '<button type="button" class="pass-toggle" onclick="togglePass(\'mu-pass-actual\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  html += '<div class="form-group"><label class="form-label">Nueva contraseña</label>';
+  html += '<div class="pass-wrap"><input type="password" class="form-input" id="mu-pass-nueva">';
+  html += '<button type="button" class="pass-toggle" onclick="togglePass(\'mu-pass-nueva\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  html += '<div class="form-group"><label class="form-label">Repetir nueva</label>';
+  html += '<div class="pass-wrap"><input type="password" class="form-input" id="mu-pass-nueva2">';
+  html += '<button type="button" class="pass-toggle" onclick="togglePass(\'mu-pass-nueva2\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  html += '<button class="btn btn-blue" onclick="guardarPassDesdeUsuario()">Cambiar contraseña</button>';
+  html += '</div></div></div>';
+
+  document.getElementById('page-mi-usuario').innerHTML = html;
+}
+
+async function guardarPassDesdeUsuario() {
+  var actual = document.getElementById('mu-pass-actual').value;
+  var nueva = document.getElementById('mu-pass-nueva').value;
+  var nueva2 = document.getElementById('mu-pass-nueva2').value;
+  if (!actual) { showToast('Introduce tu contraseña actual', 'error'); return; }
+  if (!nueva || nueva.length < 4) { showToast('Mínimo 4 caracteres', 'error'); return; }
+  if (nueva !== nueva2) { showToast('Las contraseñas no coinciden', 'error'); return; }
+  var emp = state.user.empleadoData;
+  if (emp && emp.password_hash !== actual) { showToast('Contraseña actual incorrecta', 'error'); return; }
+  try {
+    await sbUpdate('empleados', state.user.id, { password_hash: nueva });
+    if (state.user.empleadoData) state.user.empleadoData.password_hash = nueva;
+    showToast('Contraseña cambiada', 'success');
+    document.getElementById('mu-pass-actual').value = '';
+    document.getElementById('mu-pass-nueva').value = '';
+    document.getElementById('mu-pass-nueva2').value = '';
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 // =====================================================================
