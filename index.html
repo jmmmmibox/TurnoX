@@ -3350,47 +3350,59 @@ async function renderMisSolicitudes() {
   }
   html += '</div></div>';
 
-  // === MIS SOLICITUDES ===
-  html += '<div class="grid-2"><div>';
-  html += '<div class="card"><div class="card-header"><span class="card-title">Mis vacaciones</span></div><div class="card-body">';
-  if (vacSol.length === 0) html += '<div class="empty-state"><p>Sin solicitudes</p></div>';
-  vacSol.forEach(function(s) {
-    var ronda = rondas.find(function(r) { return r.id === s.ronda_id; });
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">';
-    html += '<div><div style="font-size:13px;font-weight:600">' + formatDateES(s.fecha_inicio) + ' – ' + formatDateES(s.fecha_fin) + '</div>';
-    html += '<div style="font-size:11px;color:var(--text2)">' + (ronda ? ronda.nombre : '') + ' · ' + s.dias_solicitados + ' días</div></div>';
-    html += '<span class="status-badge ' + s.estado + '">' + s.estado + '</span></div>';
-  });
-  html += '</div></div></div>';
+  // === MIS VACACIONES (tabla) ===
+  html += '<div class="card mb-4"><div class="card-header"><span class="card-title">Mis vacaciones</span></div>';
+  if (vacSol.length === 0) {
+    html += '<div class="card-body"><div class="empty-state"><p>Sin solicitudes de vacaciones</p></div></div>';
+  } else {
+    html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
+    html += '<th>Ronda</th><th>Fechas</th><th>Días</th><th>Estado</th><th></th>';
+    html += '</tr></thead><tbody>';
+    vacSol.forEach(function(s) {
+      var ronda = rondas.find(function(r) { return r.id === s.ronda_id; });
+      html += '<tr>';
+      html += '<td style="font-weight:600">' + (ronda ? ronda.nombre : '—') + '</td>';
+      html += '<td style="font-size:12px">' + formatDateES(s.fecha_inicio) + ' – ' + formatDateES(s.fecha_fin) + '</td>';
+      html += '<td style="font-weight:600">' + s.dias_solicitados + '</td>';
+      html += '<td><span class="status-badge ' + s.estado + '">' + s.estado + '</span></td>';
+      html += '<td><button class="btn btn-sm btn-ghost" onclick="modalVerVacacion(\'' + s.id + '\')">Ver detalle</button></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  html += '</div>';
 
-  // === MIS INTERCAMBIOS ===
-  html += '<div><div class="card"><div class="card-header"><span class="card-title">Mis intercambios</span>';
-  html += '<button class="btn btn-sm btn-blue" onclick="modalNuevoIntercambio()">+ Proponer</button></div><div class="card-body">';
-  if (intercambios.length === 0) html += '<div class="empty-state"><p>Sin intercambios</p></div>';
-  intercambios.forEach(function(ic) {
-    var esSolicitante = ic.solicitante_id === state.user.id;
-    var otro = state.empleados.find(function(e) { return e.id === (esSolicitante ? ic.receptor_id : ic.solicitante_id); });
-    var areaSol = ic.area_solicitante_id ? getArea(ic.area_solicitante_id) : null;
-    var areaRec = ic.area_receptor_id ? getArea(ic.area_receptor_id) : null;
-
-    html += '<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:start">';
-    html += '<div><div style="font-size:13px;font-weight:600">Con ' + (otro ? otro.nombre + ' ' + otro.apellidos : '?') + '</div>';
-    html += '<div style="font-size:11px;color:var(--text2)">' + formatDateES(ic.fecha_solicitante) + ' · ' + (ic.turno_solicitante || '') + ' → ' + (ic.turno_receptor || '') + '</div>';
-    if (areaSol && areaRec) html += '<div style="font-size:11px;color:var(--text3)">Áreas: ' + areaSol.nombre + ' ⇄ ' + areaRec.nombre + '</div>';
-    html += '</div>';
-    html += '<span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></div>';
-
-    // Si soy receptor y está pendiente, puedo aceptar
-    if (!esSolicitante && ic.estado === 'pendiente') {
-      html += '<div style="display:flex;gap:6px;margin-top:8px">';
-      html += '<button class="btn btn-sm btn-green" onclick="aceptarIntercambio(\'' + ic.id + '\')">Aceptar</button>';
-      html += '<button class="btn btn-sm btn-red" onclick="rechazarIntercambioEmp(\'' + ic.id + '\')">Rechazar</button>';
-      html += '</div>';
-    }
-    html += '</div>';
-  });
-  html += '</div></div></div></div>';
+  // === MIS INTERCAMBIOS (tabla) ===
+  html += '<div class="card"><div class="card-header"><span class="card-title">Mis intercambios</span>';
+  html += '<button class="btn btn-sm btn-blue" onclick="modalNuevoIntercambio()">+ Proponer</button></div>';
+  if (intercambios.length === 0) {
+    html += '<div class="card-body"><div class="empty-state"><p>Sin intercambios</p></div></div>';
+  } else {
+    html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
+    html += '<th>Fecha</th><th>Compañero</th><th>Mi turno</th><th>Su turno</th><th>Estado</th><th></th>';
+    html += '</tr></thead><tbody>';
+    intercambios.forEach(function(ic) {
+      var esSolicitante = ic.solicitante_id === state.user.id;
+      var otro = state.empleados.find(function(e) { return e.id === (esSolicitante ? ic.receptor_id : ic.solicitante_id); });
+      var miTurno = esSolicitante ? ic.turno_solicitante : ic.turno_receptor;
+      var suTurno = esSolicitante ? ic.turno_receptor : ic.turno_solicitante;
+      html += '<tr>';
+      html += '<td style="font-size:12px;font-weight:600">' + formatDateES(ic.fecha_solicitante) + '</td>';
+      html += '<td>' + (otro ? otro.nombre + ' ' + otro.apellidos : '?') + '</td>';
+      html += '<td><span class="turno-badge ' + (miTurno || '') + '">' + (miTurno || '?') + '</span></td>';
+      html += '<td><span class="turno-badge ' + (suTurno || '') + '">' + (suTurno || '?') + '</span></td>';
+      html += '<td><span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></td>';
+      html += '<td><div style="display:flex;gap:4px">';
+      html += '<button class="btn btn-sm btn-ghost" onclick="modalVerIntercambio(\'' + ic.id + '\')">Ver</button>';
+      if (!esSolicitante && ic.estado === 'pendiente') {
+        html += '<button class="btn btn-sm btn-green" onclick="aceptarIntercambio(\'' + ic.id + '\')">Aceptar</button>';
+        html += '<button class="btn btn-sm btn-red" onclick="rechazarIntercambioEmp(\'' + ic.id + '\')">Rechazar</button>';
+      }
+      html += '</div></td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  html += '</div>';
 
   document.getElementById('page-mis-solicitudes').innerHTML = html;
 }
@@ -3673,6 +3685,76 @@ async function rechazarIntercambioEmp(id) {
     showToast('Intercambio rechazado');
     renderMisSolicitudes();
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalVerVacacion(solId) {
+  sbQuery('vacaciones_solicitudes', { select: '*', filters: ['id=eq.' + solId] }).then(function(rows) {
+    if (!rows || rows.length === 0) return;
+    var s = rows[0];
+    var emp = state.empleados.find(function(e) { return e.id === s.empleado_id; });
+    var rondas2 = [];
+    sbQuery('vacaciones_rondas', { select: '*', filters: ['id=eq.' + s.ronda_id] }).then(function(r) {
+      var ronda = r && r[0] ? r[0] : null;
+      var body = '<div style="display:flex;flex-direction:column;gap:12px">';
+      body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Empleado</span><span style="font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</span></div>';
+      body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Ronda</span><span>' + (ronda ? ronda.nombre : '—') + '</span></div>';
+      body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Fecha inicio</span><span style="font-weight:600">' + formatDateES(s.fecha_inicio) + '</span></div>';
+      body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Fecha fin</span><span style="font-weight:600">' + formatDateES(s.fecha_fin) + '</span></div>';
+      body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Días solicitados</span><span style="font-weight:600">' + s.dias_solicitados + '</span></div>';
+      body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Estado</span><span class="status-badge ' + s.estado + '">' + s.estado + '</span></div>';
+      if (s.notas_empleado) body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Mis notas</span><span>' + s.notas_empleado + '</span></div>';
+      if (s.notas_gestor) body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Notas gestor</span><span>' + s.notas_gestor + '</span></div>';
+      body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Solicitada</span><span style="font-size:12px">' + (s.created_at ? new Date(s.created_at).toLocaleDateString('es-ES') : '—') + '</span></div>';
+      body += '</div>';
+      openModal('Detalle de vacaciones', body, '<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>');
+    });
+  });
+}
+
+function modalVerIntercambio(icId) {
+  sbQuery('intercambios', { select: '*', filters: ['id=eq.' + icId] }).then(function(rows) {
+    if (!rows || rows.length === 0) return;
+    var ic = rows[0];
+    var sol = state.empleados.find(function(e) { return e.id === ic.solicitante_id; });
+    var rec = state.empleados.find(function(e) { return e.id === ic.receptor_id; });
+    var areaSol = ic.area_solicitante_id ? getArea(ic.area_solicitante_id) : null;
+    var areaRec = ic.area_receptor_id ? getArea(ic.area_receptor_id) : null;
+    var esSolicitante = ic.solicitante_id === state.user.id;
+
+    var body = '<div style="display:flex;flex-direction:column;gap:12px">';
+    body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Fecha</span><span style="font-weight:600">' + formatDateES(ic.fecha_solicitante) + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Estado</span><span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></div>';
+
+    // Solicitante
+    body += '<div style="background:var(--bg);border-radius:8px;padding:12px;margin-top:4px">';
+    body += '<div style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:6px">SOLICITANTE' + (esSolicitante ? ' (tú)' : '') + '</div>';
+    body += '<div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--text2)">Nombre</span><span style="font-weight:600">' + (sol ? sol.nombre + ' ' + sol.apellidos : '?') + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px"><span style="color:var(--text2)">Cubre turno</span><span class="turno-badge ' + (ic.turno_solicitante || '') + '">' + (ic.turno_solicitante || '?') + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px"><span style="color:var(--text2)">Cubre área</span><span>' + (areaSol ? areaSol.nombre : '—') + '</span></div>';
+    body += '</div>';
+
+    // Receptor
+    body += '<div style="background:#FEF3C7;border-radius:8px;padding:12px">';
+    body += '<div style="font-size:11px;font-weight:700;color:#92400E;margin-bottom:6px">RECEPTOR' + (!esSolicitante ? ' (tú)' : '') + '</div>';
+    body += '<div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--text2)">Nombre</span><span style="font-weight:600">' + (rec ? rec.nombre + ' ' + rec.apellidos : '?') + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px"><span style="color:var(--text2)">Cubre turno</span><span class="turno-badge ' + (ic.turno_receptor || '') + '">' + (ic.turno_receptor || '?') + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px"><span style="color:var(--text2)">Cubre área</span><span>' + (areaRec ? areaRec.nombre : '—') + '</span></div>';
+    body += '</div>';
+
+    if (ic.notas) body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Notas</span><span style="font-size:13px">' + ic.notas + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Creado</span><span style="font-size:12px">' + (ic.created_at ? new Date(ic.created_at).toLocaleDateString('es-ES') : '—') + '</span></div>';
+    body += '</div>';
+
+    var footer = '';
+    if (!esSolicitante && ic.estado === 'pendiente') {
+      footer = '<button class="btn btn-red" onclick="rechazarIntercambioEmp(\'' + ic.id + '\');closeModal()">Rechazar</button><div style="flex:1"></div>' +
+        '<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>' +
+        '<button class="btn btn-green" onclick="aceptarIntercambio(\'' + ic.id + '\');closeModal()">Aceptar</button>';
+    } else {
+      footer = '<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>';
+    }
+    openModal('Detalle de intercambio', body, footer);
+  });
 }
 
 function toggleVacDia(ds) {
