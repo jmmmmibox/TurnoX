@@ -1776,8 +1776,24 @@ function renderCalendarioInner() {
       }
 
       // Celda de info del empleado
+      var polivs = state.polivalencias.filter(function(p) { return p.empleado_id === emp.id; });
+      var polivAbrev = polivs.map(function(p) {
+        var a2 = getArea(p.area_id);
+        if (!a2) return '';
+        // Abreviaturas
+        var n = a2.nombre;
+        if (n === 'RX/RG') return 'RX';
+        if (n === 'Jefe de Turno') return 'JT';
+        if (n === 'Control') return 'CT';
+        if (n === 'Área A') return 'AA';
+        if (n === 'Área B') return 'AB';
+        if (n === 'Azufre') return 'AZ';
+        return n.substring(0, 3).toUpperCase();
+      }).filter(function(x) { return x; });
+
       let empInfoHtml = '<div class="emp-cell-name">' + emp.nombre + ' ' + emp.apellidos + '</div>';
       empInfoHtml += '<div class="emp-cell-sub">' + (area ? area.nombre : '—');
+      if (polivAbrev.length > 0) empInfoHtml += ' <span style="color:var(--primary-light);font-size:9px">(' + polivAbrev.join(', ') + ')</span>';
       if (cicloRefuerzo) {
         empInfoHtml += ' · <strong>' + diasTrabajados + '</strong>';
         if (diasObjetivo) {
