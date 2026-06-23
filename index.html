@@ -1483,6 +1483,12 @@ function formatDateES(dateStr) {
 function getLetra(id) { return state.letras.find(l => l.id === id); }
 function getArea(id) { return state.areas.find(a => a.id === id); }
 
+function shiftDate(dateStr, days) {
+  var d = new Date(dateStr + 'T12:00:00');
+  d.setDate(d.getDate() + days);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 function turnoLabel(t) {
   return { M: 'Mañana', T: 'Tarde', N: 'Noche', D: 'Descanso', R: 'Refuerzo', V: 'Vacaciones', B: 'Baja', L: 'Luna (18-6h)', S: 'Sol (6-18h)' }[t] || '';
 }
@@ -1498,28 +1504,37 @@ function showToast(msg, type) {
 // DASHBOARD
 // =====================================================================
 function renderDashboard() {
-  const hoy = todayStr();
+  if (!state.dashFecha) state.dashFecha = todayStr();
+  var fechaVer = state.dashFecha;
+  var esHoy = fechaVer === todayStr();
   const total = state.empleados.length;
 
-  // Calcular turnos de todos + área real que cubren hoy
+  // Calcular turnos de todos + área real que cubren en la fecha seleccionada
   const empTurnos = state.empleados.map(function(e) {
-    var turno = calcTurno(e, hoy);
-    // Determinar área real: si tiene turno editado con area_id, usar ese
-    var turnoEditado = state.turnosEditados.find(function(t) { return t.empleado_id === e.id && t.fecha === hoy; });
+    var turno = calcTurno(e, fechaVer);
+    var turnoEditado = state.turnosEditados.find(function(t) { return t.empleado_id === e.id && t.fecha === fechaVer; });
     var areaRealId = (turnoEditado && turnoEditado.area_id) ? turnoEditado.area_id : e.area_principal_id;
     return { emp: e, turno: turno, areaRealId: areaRealId };
   });
   const trabajando = empTurnos.filter(et => ['M','T','N','R','S','L'].includes(et.turno));
-  const enBaja = empTurnos.filter(et => et.turno === 'B' || et.turno === 'V' || et.turno === 'L');
+  const enBaja = empTurnos.filter(et => et.turno === 'B' || et.turno === 'V');
   const manana = empTurnos.filter(et => et.turno === 'M');
   const tarde = empTurnos.filter(et => et.turno === 'T');
   const noche = empTurnos.filter(et => et.turno === 'N');
   const refuerzo = empTurnos.filter(et => et.turno === 'R');
+  const sol = empTurnos.filter(et => et.turno === 'S');
+  const luna = empTurnos.filter(et => et.turno === 'L');
 
-  // Alerta de ausentes
-  let html = '';
+  // Selector de fecha
+  let html = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">';
+  html += '<button class="cal-nav-btn" onclick="state.dashFecha=shiftDate(state.dashFecha,-1);renderDashboard()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>';
+  html += '<input type="date" class="form-input" value="' + fechaVer + '" onchange="state.dashFecha=this.value;renderDashboard()" style="padding:6px 10px;font-size:13px;font-weight:600;width:160px;text-align:center">';
+  html += '<button class="cal-nav-btn" onclick="state.dashFecha=shiftDate(state.dashFecha,1);renderDashboard()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>';
+  if (!esHoy) html += '<button class="btn btn-sm btn-outline" onclick="state.dashFecha=todayStr();renderDashboard()">Hoy</button>';
+  html += '<span style="font-size:13px;color:var(--text2)">' + formatDateES(fechaVer) + (esHoy ? ' <strong style="color:var(--primary-light)">(hoy)</strong>' : '') + '</span>';
+  html += '</div>';
 
-  // Empleados de baja
+  // Empleados ausentes
   if (enBaja.length > 0) {
     html += '<div class="alert alert-warning" style="margin-bottom:16px"><span><strong>' + enBaja.length + ' empleado' + (enBaja.length > 1 ? 's' : '') + ' ausente' + (enBaja.length > 1 ? 's' : '') + ':</strong> ';
     html += enBaja.map(et => et.emp.nombre + ' ' + et.emp.apellidos + ' <span class="turno-badge ' + et.turno + '" style="font-size:10px;width:18px;height:18px">' + et.turno + '</span>').join(', ');
@@ -1528,17 +1543,19 @@ function renderDashboard() {
 
   html += '<div class="dashboard-grid">';
 
-  // === TABLA DE TURNOS HOY agrupada por turno y área ===
-  html += '<div class="card"><div class="card-header"><span class="card-title">Hoy — ' + formatDateES(hoy) + '</span>';
+  // === TABLA DE TURNOS agrupada por turno y área ===
+  html += '<div class="card"><div class="card-header"><span class="card-title">' + formatDateES(fechaVer) + (esHoy ? ' (hoy)' : '') + '</span>';
   html += '<button class="btn btn-sm btn-outline" onclick="navigateTo(\'calendario\')">Ver calendario</button></div>';
   html += '<div style="overflow-x:auto">';
 
-  // Por cada turno: M, T, N, R
+  // Por cada turno: M, T, N, R, S, L
   [
     { tipo: 'M', label: 'Mañana · 06:00–14:00', color: 'var(--turno-M)', textColor: 'var(--turno-M-text)', list: manana },
     { tipo: 'T', label: 'Tarde · 14:00–22:00', color: 'var(--turno-T)', textColor: 'var(--turno-T-text)', list: tarde },
     { tipo: 'N', label: 'Noche · 22:00–06:00', color: 'var(--turno-N)', textColor: 'var(--turno-N-text)', list: noche },
     { tipo: 'R', label: 'Equipo de Refuerzo', color: 'var(--turno-R)', textColor: 'var(--turno-R-text)', list: refuerzo },
+    { tipo: 'S', label: 'Sol · 06:00–18:00 (12h)', color: 'var(--turno-S)', textColor: 'var(--turno-S-text)', list: sol },
+    { tipo: 'L', label: 'Luna · 18:00–06:00 (12h)', color: 'var(--turno-L)', textColor: 'var(--turno-L-text)', list: luna },
   ].forEach(turno => {
     if (turno.list.length === 0) return;
     html += '<div style="padding:6px 16px;background:' + turno.color + ';display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">';
