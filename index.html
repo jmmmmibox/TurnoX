@@ -1676,24 +1676,42 @@ function renderCalendarioInner() {
     const todosEmps = state.empleados;
     let descubierto = false;
 
-    // Obtener todos los turnos del día por área
+    // Para cada área, verificar cobertura
     state.areas.forEach(area => {
-      const empsArea = todosEmps.filter(e => e.area_principal_id === area.id);
-      const turnosArea = empsArea.map(e => calcTurno(e, d.ds)).filter(t => t);
+      // Empleados que cubren esta área este día:
+      // 1. Su area_principal_id es esta área
+      // 2. Tiene polivalencia en esta área
+      // 3. Tiene un turno editado con area_id de esta área (intercambio)
+      var empsCubrenArea = todosEmps.filter(function(e) {
+        var turno = calcTurno(e, d.ds);
+        if (!turno || turno === 'D' || turno === 'V' || turno === 'B') return false;
 
-      // Si hay S + L en esta área, las 24h están cubiertas → OK
-      const tieneSol = turnosArea.includes('S');
-      const tieneLuna = turnosArea.includes('L');
-      if (tieneSol && tieneLuna) return; // cubierto con 12h
+        // Check turno editado con area_id específico
+        var turnoEditado = state.turnosEditados.find(function(t) { return t.empleado_id === e.id && t.fecha === d.ds; });
+        if (turnoEditado && turnoEditado.area_id === area.id) return true;
+
+        // Check area principal
+        if (e.area_principal_id === area.id) return true;
+
+        // Check polivalencias
+        var tienePoliv = state.polivalencias.some(function(p) { return p.empleado_id === e.id && p.area_id === area.id; });
+        if (tienePoliv && turnoEditado) return true; // solo cuenta polivalencia si tiene turno editado (fue asignado ahí)
+
+        return false;
+      });
+
+      var turnosArea = empsCubrenArea.map(function(e) { return calcTurno(e, d.ds); });
+
+      // Si hay S + L en esta área, las 24h están cubiertas
+      var tieneSol = turnosArea.includes('S');
+      var tieneLuna = turnosArea.includes('L');
+      if (tieneSol && tieneLuna) return;
 
       // Check normal: M, T, N deben estar cubiertos
-      ['M', 'T', 'N'].forEach(turnoTipo => {
-        const enTurnoGlobal = todosEmps.filter(e => calcTurno(e, d.ds) === turnoTipo);
-        if (enTurnoGlobal.length === 0) return; // nadie en ese turno globalmente
+      ['M', 'T', 'N'].forEach(function(turnoTipo) {
+        var enTurnoGlobal = todosEmps.filter(function(e) { return calcTurno(e, d.ds) === turnoTipo; });
+        if (enTurnoGlobal.length === 0) return;
 
-        // Para M: cubierto si alguien tiene M o S en esta área
-        // Para T: cubierto si alguien tiene T, S o L en esta área
-        // Para N: cubierto si alguien tiene N o L en esta área
         var cubierto = false;
         if (turnoTipo === 'M') cubierto = turnosArea.includes('M') || tieneSol;
         else if (turnoTipo === 'T') cubierto = turnosArea.includes('T') || tieneSol || tieneLuna;
@@ -1843,8 +1861,17 @@ function mostrarDescubierto(fechaStr) {
     var areasFaltantes = [];
     var areasOk = [];
     state.areas.forEach(a => {
-      const empsArea = state.empleados.filter(e => e.area_principal_id === a.id);
-      const turnosArea = empsArea.map(e => calcTurno(e, fechaStr));
+      var empsCubrenArea = state.empleados.filter(function(e) {
+        var turno = calcTurno(e, fechaStr);
+        if (!turno || turno === 'D' || turno === 'V' || turno === 'B') return false;
+        var turnoEditado = state.turnosEditados.find(function(t) { return t.empleado_id === e.id && t.fecha === fechaStr; });
+        if (turnoEditado && turnoEditado.area_id === a.id) return true;
+        if (e.area_principal_id === a.id) return true;
+        var tienePoliv = state.polivalencias.some(function(p) { return p.empleado_id === e.id && p.area_id === a.id; });
+        if (tienePoliv && turnoEditado) return true;
+        return false;
+      });
+      var turnosArea = empsCubrenArea.map(function(e) { return calcTurno(e, fechaStr); });
       const tieneSol = turnosArea.includes('S');
       const tieneLuna = turnosArea.includes('L');
 
