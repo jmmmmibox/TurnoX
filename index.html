@@ -1501,8 +1501,14 @@ function renderDashboard() {
   const hoy = todayStr();
   const total = state.empleados.length;
 
-  // Calcular turnos de todos
-  const empTurnos = state.empleados.map(e => ({ emp: e, turno: calcTurno(e, hoy) }));
+  // Calcular turnos de todos + área real que cubren hoy
+  const empTurnos = state.empleados.map(function(e) {
+    var turno = calcTurno(e, hoy);
+    // Determinar área real: si tiene turno editado con area_id, usar ese
+    var turnoEditado = state.turnosEditados.find(function(t) { return t.empleado_id === e.id && t.fecha === hoy; });
+    var areaRealId = (turnoEditado && turnoEditado.area_id) ? turnoEditado.area_id : e.area_principal_id;
+    return { emp: e, turno: turno, areaRealId: areaRealId };
+  });
   const trabajando = empTurnos.filter(et => ['M','T','N','R','S','L'].includes(et.turno));
   const enBaja = empTurnos.filter(et => et.turno === 'B' || et.turno === 'V' || et.turno === 'L');
   const manana = empTurnos.filter(et => et.turno === 'M');
@@ -1539,17 +1545,19 @@ function renderDashboard() {
     html += '<span style="font-size:12px;font-weight:700;color:' + turno.textColor + '">' + turno.label + '</span>';
     html += '<span style="font-size:11px;font-weight:600;color:' + turno.textColor + '">' + turno.list.length + ' empleados</span></div>';
 
-    // Agrupar por área dentro de este turno
+    // Agrupar por área real dentro de este turno
     state.areas.forEach(area => {
-      const enArea = turno.list.filter(et => et.emp.area_principal_id === area.id);
+      const enArea = turno.list.filter(et => et.areaRealId === area.id);
       if (enArea.length === 0) return;
       enArea.forEach((et, idx) => {
         const l = getLetra(et.emp.letra_id);
+        var areaReal = getArea(et.areaRealId);
+        var esIntercambio = et.areaRealId !== et.emp.area_principal_id;
         html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid var(--border)">';
         html += '<div class="emp-avatar" style="background:' + (l ? l.color : '#64748B') + ';width:28px;height:28px;font-size:10px">' + (et.emp.nombre[0] || '') + (et.emp.apellidos[0] || '') + '</div>';
         html += '<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600">' + et.emp.nombre + ' ' + et.emp.apellidos + '</div></div>';
         html += '<span class="letra-badge" style="background:' + (l ? l.color + '22' : '#eee') + ';color:' + (l ? l.color : '#999') + '">' + (l ? l.nombre : '?') + '</span>';
-        html += '<span style="font-size:11px;color:var(--text2);min-width:70px;text-align:right">' + area.nombre + '</span>';
+        html += '<span style="font-size:11px;min-width:70px;text-align:right;' + (esIntercambio ? 'color:var(--warning);font-weight:600' : 'color:var(--text2)') + '">' + (areaReal ? areaReal.nombre : '—') + (esIntercambio ? ' ↔' : '') + '</span>';
         html += '</div>';
       });
     });
@@ -1569,13 +1577,13 @@ function renderDashboard() {
     if (turno.list.length === 0) return;
     html += '<div class="card"><div class="card-header" style="background:' + turno.bg + '">';
     html += '<span class="card-title" style="color:' + turno.color + '">Áreas — ' + turno.label + '</span>';
-    // Check if all areas covered
-    const allCovered = state.areas.every(a => turno.list.some(et => et.emp.area_principal_id === a.id));
+    // Check if all areas covered using real area
+    const allCovered = state.areas.every(a => turno.list.some(et => et.areaRealId === a.id));
     if (allCovered) html += '<span style="font-size:11px;font-weight:700;color:#166534;background:#DCFCE7;padding:2px 8px;border-radius:10px">✓ OK</span>';
     else html += '<span style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:2px 8px;border-radius:10px">⚠ Incompleto</span>';
     html += '</div><div class="card-body" style="padding:8px 16px">';
     state.areas.forEach(area => {
-      const count = turno.list.filter(et => et.emp.area_principal_id === area.id).length;
+      const count = turno.list.filter(et => et.areaRealId === area.id).length;
       html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)">';
       html += '<div style="display:flex;align-items:center;gap:6px"><div style="width:6px;height:6px;border-radius:50%;background:' + area.color + '"></div>';
       html += '<span style="font-size:12px">' + area.nombre + '</span></div>';
@@ -1590,10 +1598,10 @@ function renderDashboard() {
     html += '<span style="font-size:11px;font-weight:700;color:var(--turno-R-text)">' + refuerzo.length + ' empleados</span></div>';
     html += '<div class="card-body" style="padding:8px 16px">';
     refuerzo.forEach(et => {
-      const a = getArea(et.emp.area_principal_id);
+      var areaReal = getArea(et.areaRealId);
       html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">';
       html += '<span style="font-size:12px">' + et.emp.nombre + ' ' + et.emp.apellidos + '</span>';
-      html += '<span style="font-size:11px;color:var(--text2)">' + (a ? a.nombre : '') + '</span></div>';
+      html += '<span style="font-size:11px;color:var(--text2)">' + (areaReal ? areaReal.nombre : '') + '</span></div>';
     });
     html += '</div></div>';
   }
