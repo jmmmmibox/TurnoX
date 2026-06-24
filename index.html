@@ -417,10 +417,9 @@ a { color: inherit; text-decoration: none; }
 
 .cal-table-wrap { overflow: auto; max-height: 80vh; position: relative; -webkit-overflow-scrolling: touch; }
 .cal-table {
-  width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 900px;
+  table-layout: fixed;
 }
 .cal-table thead th { position: -webkit-sticky; position: sticky; top: 0; z-index: 5; background: white; }
 .cal-table th {
@@ -433,7 +432,7 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
   background: white;
 }
-.cal-table th.day-header { width: 36px; font-size: 10px; }
+.cal-table th.day-header { width: 48px; min-width: 48px; font-size: 10px; }
 .cal-table th.day-header.weekend { color: var(--danger); }
 .cal-table th.day-header.festivo { background: #FEF9C3; }
 .cal-table td {
@@ -452,8 +451,9 @@ a { color: inherit; text-decoration: none; }
   z-index: 3;
   background: white;
   border-right: 2px solid #CBD5E1;
-  min-width: 180px;
+  min-width: 200px;
   max-width: 220px;
+  width: 200px;
   box-shadow: 4px 0 8px rgba(0,0,0,0.08);
 }
 .cal-table td.letra-sep {
