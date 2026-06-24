@@ -512,8 +512,8 @@ td.col-descubierto { background: #FEF2F2 !important; }
 .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text2); }
 
 /* ===================== TABLA EMPLEADOS ===================== */
-.emp-table { width: 100%; border-collapse: collapse; }
-.emp-table th {
+.emp-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.emp-table thead th {
   padding: 10px 12px;
   font-size: 11px;
   font-weight: 600;
@@ -522,6 +522,11 @@ td.col-descubierto { background: #FEF2F2 !important; }
   border-bottom: 2px solid var(--border);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  position: -webkit-sticky;
+  position: sticky;
+  top: 0;
+  background: white;
+  z-index: 4;
 }
 .emp-table td {
   padding: 10px 12px;
@@ -1983,7 +1988,7 @@ function renderEmpleados() {
 
   html += '<div class="card"><div style="padding:12px 16px;border-bottom:1px solid var(--border)">';
   html += '<input type="text" class="form-input" placeholder="Buscar empleado..." oninput="filtrarEmpleados(this.value)" style="max-width:300px;padding:7px 12px"></div>';
-  html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
+  html += '<div style="overflow:auto;max-height:75vh;-webkit-overflow-scrolling:touch"><table class="emp-table"><thead><tr>';
   html += '<th>Empleado</th><th>Letra</th><th>Área Principal</th><th>Polivalencias</th><th>Usuario</th><th>Turno hoy</th><th></th>';
   html += '</tr></thead><tbody id="emp-tbody">' + renderEmpRows(state.empleados) + '</tbody></table></div></div>';
 
@@ -2359,11 +2364,16 @@ async function eliminarIntercambio(icId, solId, recId, fechaSol, fechaRec) {
 // =====================================================================
 async function renderAusencias() {
   let ausencias = [];
-  try { ausencias = await sbQuery('ausencias', { select: '*', order: 'fecha_inicio.desc', limit: 50 }); } catch (e) {}
+  try { ausencias = await sbQuery('ausencias', { select: '*', order: 'fecha_inicio.desc', limit: 100 }); } catch (e) {}
 
-  // Tipos configurables (stored in state, editable)
   if (!state.tiposAusencia) state.tiposAusencia = ['Baja médica', 'Licencia', 'Ausencia justificada', 'Ausencia injustificada', 'Permiso retribuido', 'Accidente laboral'];
   if (!state.tiposCobertura) state.tiposCobertura = ['Equipo de refuerzo', 'Polivalente', 'Modo 12 horas', 'Horas extra compañero', 'Sin cobertura'];
+  if (!state.ausTab) state.ausTab = 'activas';
+
+  var hoy = todayStr();
+  var activas = ausencias.filter(function(a) { return a.fecha_fin >= hoy; });
+  var pasadas = ausencias.filter(function(a) { return a.fecha_fin < hoy; });
+  var lista = state.ausTab === 'activas' ? activas : pasadas;
 
   let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">';
   html += '<h2 style="font-size:15px;font-weight:600">Ausencias y Coberturas</h2>';
@@ -2372,24 +2382,33 @@ async function renderAusencias() {
   html += '<button class="btn btn-blue" onclick="modalNuevaAusencia()">+ Registrar ausencia</button>';
   html += '</div></div>';
 
-  // Resumen
-  var activas = ausencias.filter(function(a) { return a.fecha_fin >= todayStr(); });
-  if (activas.length > 0) {
-    html += '<div class="alert alert-warning" style="margin-bottom:16px"><span><strong>' + activas.length + ' ausencia' + (activas.length > 1 ? 's' : '') + ' activa' + (activas.length > 1 ? 's' : '') + '</strong></span></div>';
+  // Tabs
+  html += '<div class="config-tabs" style="margin-bottom:16px">';
+  html += '<button class="config-tab' + (state.ausTab === 'activas' ? ' active' : '') + '" onclick="state.ausTab=\'activas\';renderAusencias()">Activas <span style="font-size:10px;background:' + (activas.length > 0 ? '#FEE2E2;color:#991B1B' : 'var(--bg);color:var(--text3)') + ';padding:1px 6px;border-radius:10px;margin-left:4px">' + activas.length + '</span></button>';
+  html += '<button class="config-tab' + (state.ausTab === 'pasadas' ? ' active' : '') + '" onclick="state.ausTab=\'pasadas\';renderAusencias()">Pasadas <span style="font-size:10px;background:var(--bg);color:var(--text3);padding:1px 6px;border-radius:10px;margin-left:4px">' + pasadas.length + '</span></button>';
+  html += '</div>';
+
+  if (state.ausTab === 'activas' && activas.length > 0) {
+    var hoyActivas = activas.filter(function(a) { return a.fecha_inicio <= hoy && a.fecha_fin >= hoy; });
+    if (hoyActivas.length > 0) {
+      html += '<div class="alert alert-warning" style="margin-bottom:16px"><span><strong>' + hoyActivas.length + ' ausencia' + (hoyActivas.length > 1 ? 's' : '') + ' hoy:</strong> ';
+      html += hoyActivas.map(function(a) { var e = state.empleados.find(function(emp) { return emp.id === a.empleado_id; }); return (e ? e.nombre + ' ' + e.apellidos : '?') + ' (' + a.tipo + ')'; }).join(', ');
+      html += '</span></div>';
+    }
   }
 
-  html += '<div class="card"><div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
+  html += '<div class="card"><div style="overflow:auto;max-height:65vh;-webkit-overflow-scrolling:touch"><table class="emp-table"><thead><tr>';
   html += '<th>Empleado</th><th>Letra</th><th>Tipo</th><th>Desde</th><th>Hasta</th><th>Días</th><th>Cobertura</th><th></th>';
   html += '</tr></thead><tbody>';
-  if (ausencias.length === 0) {
-    html += '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Sin ausencias registradas</td></tr>';
+  if (lista.length === 0) {
+    html += '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text3)">Sin ausencias ' + (state.ausTab === 'activas' ? 'activas' : 'pasadas') + '</td></tr>';
   }
-  ausencias.forEach(function(a) {
+  lista.forEach(function(a) {
     var emp = state.empleados.find(function(e) { return e.id === a.empleado_id; });
     var letr = emp ? getLetra(emp.letra_id) : null;
     var diasAus = Math.round((new Date(a.fecha_fin + 'T12:00:00') - new Date(a.fecha_inicio + 'T12:00:00')) / 86400000) + 1;
-    var activa = a.fecha_fin >= todayStr() && a.fecha_inicio <= todayStr();
-    html += '<tr style="' + (activa ? 'background:#FEF2F2;' : '') + '">';
+    var esHoy = a.fecha_inicio <= hoy && a.fecha_fin >= hoy;
+    html += '<tr style="' + (esHoy ? 'background:#FEF2F2;' : '') + '">';
     html += '<td style="font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</td>';
     html += '<td>' + (letr ? '<span class="letra-badge" style="background:' + letr.color + '22;color:' + letr.color + '">' + letr.nombre + '</span>' : '?') + '</td>';
     html += '<td><span class="status-badge ' + (a.tipo.includes('Baja') || a.tipo === 'baja' ? 'closed' : 'pending') + '">' + a.tipo + '</span></td>';
@@ -2667,6 +2686,7 @@ function renderInformeAusencias() {
   if (!state.infAusDesde) state.infAusDesde = new Date().getFullYear() + '-01-01';
   if (!state.infAusHasta) state.infAusHasta = new Date().getFullYear() + '-12-31';
   if (!state.infAusTipo) state.infAusTipo = '';
+  if (!state.infAusEmp) state.infAusEmp = '';
 
   var html = '<div class="card"><div class="card-header"><span class="card-title">🏥 Ausencias</span>';
   html += '<button class="btn btn-sm btn-blue" onclick="imprimirInforme()">🖨 Imprimir PDF</button></div>';
@@ -2677,6 +2697,9 @@ function renderInformeAusencias() {
   html += '<div class="form-group" style="margin:0"><label class="form-label" style="margin-bottom:2px">Hasta</label><input type="date" class="form-input" value="' + state.infAusHasta + '" onchange="state.infAusHasta=this.value;renderInformes()" style="padding:5px 8px;font-size:12px"></div>';
   html += '<div class="form-group" style="margin:0"><label class="form-label" style="margin-bottom:2px">Tipo</label><select class="filter-select" onchange="state.infAusTipo=this.value;renderInformes()"><option value="">Todos</option>';
   if (state.tiposAusencia) state.tiposAusencia.forEach(function(t) { html += '<option value="' + t + '"' + (state.infAusTipo === t ? ' selected' : '') + '>' + t + '</option>'; });
+  html += '</select></div>';
+  html += '<div class="form-group" style="margin:0"><label class="form-label" style="margin-bottom:2px">Empleado</label><select class="filter-select" onchange="state.infAusEmp=this.value;renderInformes()"><option value="">Todos</option>';
+  state.empleados.forEach(function(e) { html += '<option value="' + e.id + '"' + (state.infAusEmp === e.id ? ' selected' : '') + '>' + e.nombre + ' ' + e.apellidos + '</option>'; });
   html += '</select></div></div>';
 
   html += '<div id="informe-print"><div id="inf-aus-loading"><div class="loading-center"><div class="spinner"></div></div></div></div>';
@@ -2691,6 +2714,7 @@ async function cargarInformeAusencias() {
   try {
     var filters = ['fecha_inicio=gte.' + state.infAusDesde, 'fecha_fin=lte.' + state.infAusHasta];
     if (state.infAusTipo) filters.push('tipo=eq.' + state.infAusTipo);
+    if (state.infAusEmp) filters.push('empleado_id=eq.' + state.infAusEmp);
     var ausencias = await sbQuery('ausencias', { select: '*', filters: filters, order: 'fecha_inicio.desc' });
 
     var thtml = '<table style="width:100%;border-collapse:collapse;font-size:12px">';
