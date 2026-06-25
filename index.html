@@ -938,6 +938,9 @@ td.col-descubierto { background: #FEF2F2 !important; }
   </div>
 </div>
 
+<!-- ===================== PLANTA SELECTOR ===================== -->
+<div id="planta-selector" style="display:none;justify-content:center;align-items:center;min-height:100vh;background:var(--bg)"></div>
+
 <!-- ===================== APP ===================== -->
 <div id="app">
   <div class="mobile-overlay" id="mobile-overlay" onclick="closeSidebar()"></div>
@@ -1007,6 +1010,9 @@ td.col-descubierto { background: #FEF2F2 !important; }
       <div class="page" id="page-mi-calendario"></div>
       <div class="page" id="page-mis-solicitudes"></div>
       <div class="page" id="page-mi-usuario"></div>
+      <div class="page" id="page-admin-plantas"></div>
+      <div class="page" id="page-admin-gestores"></div>
+      <div class="page" id="page-admin-nuevo-ano"></div>
     </div>
   </main>
 </div>
@@ -1020,7 +1026,8 @@ td.col-descubierto { background: #FEF2F2 !important; }
 // =====================================================================
 const SUPABASE_URL = 'https://jjabwsitruoxcpolvzph.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqYWJ3c2l0cnVveGNwb2x2enBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5NjI0ODQsImV4cCI6MjA5NzUzODQ4NH0.nnwLUPkIA96dvnIXhCQHatBrlAspixIZ_aX4mh7UOeQ';
-const PLANTA_ID = 'a1b2c3d4-0001-0001-0001-000000000001';
+const SUPER_ADMIN_EMAIL = 'nadius76@hotmail.com';
+var PLANTA_ID = null; // Dynamic - set after login
 
 // =====================================================================
 // SUPABASE REST CLIENT
@@ -1103,6 +1110,8 @@ async function sbSignIn(email, password) {
 // =====================================================================
 let state = {
   user: null,
+  isSuperAdmin: false,
+  plantasDisponibles: [],
   empleados: [],
   areas: [],
   letras: [],
@@ -1189,17 +1198,99 @@ async function loginGestor() {
     }
     authToken = r.access_token;
     const nombre = email.split('@')[0];
-    // Ensure gestor exists in gestores table for notifications
+    const userId = r.user.id;
+
+    // Check if super admin
+    var esSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+    state.isSuperAdmin = esSuperAdmin;
+
+    // Ensure gestor row exists
     try {
-      var existG = await sbQuery('gestores', { select: 'id', filters: ['id=eq.' + r.user.id] });
+      var existG = await sbQuery('gestores', { select: 'id', filters: ['id=eq.' + userId] });
       if (!existG || existG.length === 0) {
-        await sbInsert('gestores', { id: r.user.id, nombre: nombre, email: email, planta_id: PLANTA_ID, rol: 'admin' });
+        await sbInsert('gestores', { id: userId, nombre: nombre, email: email, rol: esSuperAdmin ? 'superadmin' : 'gestor' });
       }
-    } catch(eg) { console.log('Gestor row:', eg); }
-    enterApp({ tipo: 'gestor', id: r.user.id, nombre: nombre, email: email });
+    } catch(eg) {}
+
+    // Ensure super_admins row exists
+    if (esSuperAdmin) {
+      try {
+        var existSA = await sbQuery('super_admins', { select: 'id', filters: ['id=eq.' + userId] });
+        if (!existSA || existSA.length === 0) {
+          await sbInsert('super_admins', { id: userId, email: email, nombre: nombre });
+        }
+      } catch(esa) {}
+    }
+
+    // Get available plants
+    var plantas = [];
+    if (esSuperAdmin) {
+      // Super admin sees all plants
+      plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] });
+    } else {
+      // Normal gestor: check gestor_plantas
+      var gp = await sbQuery('gestor_plantas', { select: 'planta_id', filters: ['gestor_id=eq.' + userId] });
+      if (gp && gp.length > 0) {
+        var plantaIds = gp.map(function(g) { return g.planta_id; });
+        plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] });
+        plantas = plantas.filter(function(p) { return plantaIds.includes(p.id); });
+      }
+    }
+
+    state.plantasDisponibles = plantas;
+
+    if (plantas.length === 0 && !esSuperAdmin) {
+      errEl.textContent = 'No tienes plantas asignadas. Contacta al administrador.';
+      return;
+    }
+
+    if (plantas.length === 1) {
+      // Single plant → enter directly
+      PLANTA_ID = plantas[0].id;
+      enterApp({ tipo: esSuperAdmin ? 'superadmin' : 'gestor', id: userId, nombre: nombre, email: email });
+    } else {
+      // Multiple plants or super admin → show selector
+      mostrarSelectorPlanta({ tipo: esSuperAdmin ? 'superadmin' : 'gestor', id: userId, nombre: nombre, email: email }, plantas);
+    }
   } catch (e) {
     errEl.textContent = 'Error de conexión';
     console.error('Login error:', e);
+  }
+}
+
+function mostrarSelectorPlanta(user, plantas) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+  var sel = document.getElementById('planta-selector');
+  sel.style.display = 'flex';
+  var html = '<div class="login-box" style="max-width:500px">';
+  html += '<div class="login-logo"><div class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>';
+  html += '<h1>TurnoX</h1><p>Selecciona la planta</p></div>';
+  html += '<div style="display:flex;flex-direction:column;gap:8px">';
+  plantas.forEach(function(p) {
+    html += '<button class="btn btn-outline w-full" style="padding:14px;font-size:14px;justify-content:space-between" onclick="seleccionarPlanta(\'' + p.id + '\')">';
+    html += '<span style="font-weight:600">' + p.nombre + '</span>';
+    html += '<span style="font-size:12px;color:var(--text3)">' + (p.descripcion || '') + '</span></button>';
+  });
+  if (state.isSuperAdmin) {
+    html += '<button class="btn btn-blue w-full" style="padding:14px;margin-top:8px" onclick="seleccionarPlanta(\'admin\')">Panel de Administración</button>';
+  }
+  html += '</div>';
+  html += '<button class="btn btn-ghost w-full" style="margin-top:12px" onclick="logout()">Cerrar sesión</button>';
+  html += '</div>';
+  sel.innerHTML = html;
+  // Store user for later
+  state._pendingUser = user;
+}
+
+function seleccionarPlanta(plantaId) {
+  document.getElementById('planta-selector').style.display = 'none';
+  if (plantaId === 'admin') {
+    PLANTA_ID = null;
+    enterApp({ tipo: 'superadmin', id: state._pendingUser.id, nombre: state._pendingUser.nombre, email: state._pendingUser.email, modoAdmin: true });
+  } else {
+    PLANTA_ID = plantaId;
+    enterApp(state._pendingUser);
   }
 }
 
@@ -1225,7 +1316,7 @@ async function loginEmpleado() {
     // Si es primer login (sin contraseña o primer_login=true)
     if (emp.primer_login || !emp.password_hash || emp.password_hash === '' || emp.password_hash === 'Turnox2026') {
       if (!pass) {
-        // Entrar sin contraseña la primera vez
+        PLANTA_ID = emp.planta_id;
         enterApp({ tipo: 'empleado', id: emp.id, nombre: emp.nombre + ' ' + emp.apellidos, username: username, empleadoData: emp, primerLogin: true });
         return;
       }
@@ -1237,6 +1328,7 @@ async function loginEmpleado() {
       errEl.textContent = 'Contraseña incorrecta';
       return;
     }
+    PLANTA_ID = emp.planta_id;
     enterApp({ tipo: 'empleado', id: emp.id, nombre: emp.nombre + ' ' + emp.apellidos, username: username, empleadoData: emp });
   } catch (e) {
     errEl.textContent = 'Error de conexión';
@@ -1247,27 +1339,52 @@ async function loginEmpleado() {
 function enterApp(user) {
   state.user = user;
   document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('planta-selector').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
 
   const initials = user.nombre.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
   document.getElementById('user-avatar').textContent = initials;
   document.getElementById('user-name').textContent = user.nombre;
-  document.getElementById('user-role').textContent = user.tipo === 'gestor' ? 'Gestor / Admin' : 'Empleado';
+
+  var roleLabel = 'Empleado';
+  if (user.modoAdmin) roleLabel = 'Super Admin';
+  else if (state.isSuperAdmin) roleLabel = 'Super Admin · Planta';
+  else if (user.tipo === 'gestor') roleLabel = 'Gestor';
+  document.getElementById('user-role').textContent = roleLabel;
+
+  // Update sidebar planta name
+  if (PLANTA_ID && state.plantasDisponibles.length > 0) {
+    var p = state.plantasDisponibles.find(function(pl) { return pl.id === PLANTA_ID; });
+    if (p) document.getElementById('sidebar-planta').textContent = p.nombre;
+  } else if (user.modoAdmin) {
+    document.getElementById('sidebar-planta').textContent = 'Administración';
+  }
 
   buildNav();
-  loadAllData().then(() => {
-    navigateTo(user.tipo === 'gestor' ? 'dashboard' : 'mi-turno');
-    // Si es primer login de empleado, forzar crear contraseña
-    if (user.primerLogin) {
-      setTimeout(function() { modalCrearPassword(); }, 500);
-    }
-  });
+
+  if (user.modoAdmin) {
+    // Super admin mode — no plant data to load
+    navigateTo('admin-plantas');
+  } else {
+    loadAllData().then(() => {
+      var firstPage = (user.tipo === 'gestor' || user.tipo === 'superadmin') ? 'dashboard' : 'mi-turno';
+      navigateTo(firstPage);
+      if (user.primerLogin) {
+        setTimeout(function() { modalCrearPassword(); }, 500);
+      }
+    });
+  }
 }
 
 function logout() {
   state.user = null;
+  state.isSuperAdmin = false;
+  state.plantasDisponibles = [];
+  state.pollingStarted = false;
+  PLANTA_ID = null;
   authToken = null;
   document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('planta-selector').style.display = 'none';
   document.getElementById('app').style.display = 'none';
 }
 
@@ -1410,6 +1527,13 @@ const NAV_EMPLEADO = [
   { id: 'mi-usuario', label: 'Mi Usuario', icon: 'settings' },
 ];
 
+const NAV_SUPERADMIN = [
+  { id: 'admin-plantas', label: 'Plantas', icon: 'grid' },
+  { id: 'admin-gestores', label: 'Gestores', icon: 'users' },
+  { separator: 'Sistema' },
+  { id: 'admin-nuevo-ano', label: 'Nuevo Año', icon: 'calendar' },
+];
+
 function getIcon(name) {
   const icons = {
     home: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
@@ -1430,9 +1554,27 @@ function getIcon(name) {
 
 function buildNav() {
   const nav = document.getElementById('sidebar-nav');
-  const items = state.user.tipo === 'gestor' ? NAV_GESTOR : NAV_EMPLEADO;
+  var items;
+  if (state.user.modoAdmin) {
+    items = NAV_SUPERADMIN;
+  } else if (state.user.tipo === 'gestor' || state.user.tipo === 'superadmin') {
+    items = NAV_GESTOR;
+  } else {
+    items = NAV_EMPLEADO;
+  }
+  // If super admin is in a plant, add "Cambiar planta" at the end
+  if (state.isSuperAdmin && !state.user.modoAdmin && state.plantasDisponibles.length > 1) {
+    items = items.concat([
+      { separator: 'Admin' },
+      { id: 'cambiar-planta', label: 'Cambiar planta', icon: 'grid' },
+    ]);
+  }
   nav.innerHTML = items.map(item => {
     if (item.separator) return '<div class="nav-section-label">' + item.separator + '</div>';
+    if (item.id === 'cambiar-planta') {
+      return '<div class="nav-item" onclick="mostrarSelectorPlanta(state._pendingUser || state.user, state.plantasDisponibles)">' +
+        getIcon(item.icon) + '<span>' + item.label + '</span></div>';
+    }
     return '<div class="nav-item" id="nav-' + item.id + '" onclick="navigateTo(\'' + item.id + '\')">' +
       getIcon(item.icon) + '<span>' + item.label + '</span></div>';
   }).join('');
@@ -1457,6 +1599,9 @@ function navigateTo(page) {
     'mi-turno': 'Mi Turno', 'mi-calendario': 'Mi Calendario',
     'mis-solicitudes': 'Mis Solicitudes',
     'mi-usuario': 'Mi Usuario',
+    'admin-plantas': 'Gestión de Plantas',
+    'admin-gestores': 'Gestión de Gestores',
+    'admin-nuevo-ano': 'Nuevo Año',
   };
   document.getElementById('page-title').textContent = titles[page] || page;
   closeSidebar();
@@ -1477,6 +1622,9 @@ function renderPage(page) {
     'mi-calendario': renderMiCalendario,
     'mis-solicitudes': renderMisSolicitudes,
     'mi-usuario': renderMiUsuario,
+    'admin-plantas': renderAdminPlantas,
+    'admin-gestores': renderAdminGestores,
+    'admin-nuevo-ano': renderAdminNuevoAno,
   };
   if (renders[page]) renders[page]();
 }
@@ -4518,6 +4666,281 @@ async function restaurarBackup(input) {
     } catch (e) { showToast('Error leyendo el archivo: ' + e.message, 'error'); }
   };
   reader.readAsText(input.files[0]);
+}
+
+// =====================================================================
+// SUPER ADMIN — PLANTAS
+// =====================================================================
+async function renderAdminPlantas() {
+  var plantas = [];
+  try { plantas = await sbQuery('plantas', { select: '*', order: 'nombre.asc' }); } catch(e) {}
+  var gestorPlantas = [];
+  try { gestorPlantas = await sbQuery('gestor_plantas', { select: '*' }); } catch(e) {}
+
+  var html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px">';
+  html += '<h2 style="font-size:15px;font-weight:600">Plantas</h2>';
+  html += '<button class="btn btn-blue" onclick="modalNuevaPlanta()">+ Crear planta</button></div>';
+
+  html += '<div class="card"><div style="overflow:auto"><table class="emp-table"><thead><tr>';
+  html += '<th>Nombre</th><th>Descripción</th><th>Gestores</th><th>Estado</th><th></th>';
+  html += '</tr></thead><tbody>';
+  if (plantas.length === 0) {
+    html += '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin plantas</td></tr>';
+  }
+  plantas.forEach(function(p) {
+    var gps = gestorPlantas.filter(function(gp) { return gp.planta_id === p.id; });
+    html += '<tr>';
+    html += '<td style="font-weight:600">' + p.nombre + '</td>';
+    html += '<td style="font-size:12px;color:var(--text2)">' + (p.descripcion || '—') + '</td>';
+    html += '<td style="font-weight:600">' + gps.length + '</td>';
+    html += '<td><span class="status-badge ' + (p.activa !== false ? 'open' : 'closed') + '">' + (p.activa !== false ? 'Activa' : 'Inactiva') + '</span></td>';
+    html += '<td><div style="display:flex;gap:4px">';
+    html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarPlantaAdmin(\'' + p.id + '\')">✎</button>';
+    html += '<button class="btn btn-sm btn-outline" onclick="seleccionarPlanta(\'' + p.id + '\')">Entrar</button>';
+    html += '</div></td></tr>';
+  });
+  html += '</tbody></table></div></div>';
+  document.getElementById('page-admin-plantas').innerHTML = html;
+}
+
+function modalNuevaPlanta() {
+  var body = '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="np-nombre" placeholder="Ej: Planta Huelva"></div>';
+  body += '<div class="form-group"><label class="form-label">Descripción</label><input class="form-input" id="np-desc" placeholder="Opcional"></div>';
+  openModal('Crear nueva planta', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="crearPlantaAdmin()">Crear</button>');
+}
+
+async function crearPlantaAdmin() {
+  var nombre = document.getElementById('np-nombre').value.trim();
+  if (!nombre) { showToast('Indica un nombre', 'error'); return; }
+  try {
+    var result = await sbInsert('plantas', { nombre: nombre, descripcion: document.getElementById('np-desc').value.trim(), activa: true });
+    closeModal();
+    showToast('Planta creada', 'success');
+    renderAdminPlantas();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalEditarPlantaAdmin(plantaId) {
+  sbQuery('plantas', { select: '*', filters: ['id=eq.' + plantaId] }).then(function(rows) {
+    if (!rows || rows.length === 0) return;
+    var p = rows[0];
+    var body = '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="ep-nombre" value="' + p.nombre + '"></div>';
+    body += '<div class="form-group"><label class="form-label">Descripción</label><input class="form-input" id="ep-desc" value="' + (p.descripcion || '') + '"></div>';
+    body += '<div class="form-group"><label class="form-label">Estado</label><select class="form-input" id="ep-activa">';
+    body += '<option value="true"' + (p.activa !== false ? ' selected' : '') + '>Activa</option>';
+    body += '<option value="false"' + (p.activa === false ? ' selected' : '') + '>Inactiva</option></select></div>';
+    openModal('Editar planta', body,
+      '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+      '<button class="btn btn-blue" onclick="guardarPlantaAdmin(\'' + plantaId + '\')">Guardar</button>');
+  });
+}
+
+async function guardarPlantaAdmin(plantaId) {
+  try {
+    await sbUpdate('plantas', plantaId, {
+      nombre: document.getElementById('ep-nombre').value.trim(),
+      descripcion: document.getElementById('ep-desc').value.trim(),
+      activa: document.getElementById('ep-activa').value === 'true'
+    });
+    closeModal(); showToast('Planta actualizada', 'success'); renderAdminPlantas();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
+// SUPER ADMIN — GESTORES
+// =====================================================================
+async function renderAdminGestores() {
+  var gestores = [];
+  try { gestores = await sbQuery('gestores', { select: '*', order: 'nombre.asc' }); } catch(e) {}
+  var gestorPlantas = [];
+  try { gestorPlantas = await sbQuery('gestor_plantas', { select: '*' }); } catch(e) {}
+  var plantas = [];
+  try { plantas = await sbQuery('plantas', { select: '*' }); } catch(e) {}
+
+  var html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px">';
+  html += '<h2 style="font-size:15px;font-weight:600">Gestores</h2>';
+  html += '<button class="btn btn-blue" onclick="modalNuevoGestorAdmin()">+ Crear gestor</button></div>';
+
+  html += '<div class="card"><div style="overflow:auto"><table class="emp-table"><thead><tr>';
+  html += '<th>Nombre</th><th>Email</th><th>Plantas asignadas</th><th>Max. plantas</th><th>Estado</th><th></th>';
+  html += '</tr></thead><tbody>';
+  gestores.forEach(function(g) {
+    var gps = gestorPlantas.filter(function(gp) { return gp.gestor_id === g.id; });
+    var plantaNames = gps.map(function(gp) { var p = plantas.find(function(pl) { return pl.id === gp.planta_id; }); return p ? p.nombre : '?'; });
+    html += '<tr>';
+    html += '<td style="font-weight:600">' + (g.nombre || '—') + '</td>';
+    html += '<td style="font-size:12px">' + (g.email || '—') + '</td>';
+    html += '<td><div style="display:flex;gap:4px;flex-wrap:wrap">';
+    if (plantaNames.length === 0) html += '<span style="color:var(--text3)">Ninguna</span>';
+    plantaNames.forEach(function(n) { html += '<span style="font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px">' + n + '</span>'; });
+    html += '</div></td>';
+    html += '<td style="font-weight:600">' + (g.max_plantas || 1) + '</td>';
+    html += '<td><span class="status-badge ' + (g.activo !== false ? 'open' : 'closed') + '">' + (g.activo !== false ? 'Activo' : 'Inactivo') + '</span></td>';
+    html += '<td><div style="display:flex;gap:4px">';
+    html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarGestorAdmin(\'' + g.id + '\')">✎</button>';
+    html += '<button class="btn btn-sm btn-outline" onclick="modalAsignarPlantas(\'' + g.id + '\')">Plantas</button>';
+    html += '</div></td></tr>';
+  });
+  html += '</tbody></table></div></div>';
+  document.getElementById('page-admin-gestores').innerHTML = html;
+}
+
+function modalNuevoGestorAdmin() {
+  var body = '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="ng-nombre"></div>';
+  body += '<div class="form-group"><label class="form-label">Email</label><input class="form-input" id="ng-email" type="email"></div>';
+  body += '<div class="form-group"><label class="form-label">Máximo de plantas</label><input class="form-input" id="ng-max" type="number" value="1" min="1"></div>';
+  body += '<div class="alert alert-info" style="margin-top:8px"><span>El gestor debe estar registrado como usuario en Supabase Auth (email + contraseña). Aquí solo se crea su perfil de gestor.</span></div>';
+  openModal('Crear gestor', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="crearGestorAdmin()">Crear</button>');
+}
+
+async function crearGestorAdmin() {
+  var nombre = document.getElementById('ng-nombre').value.trim();
+  var email = document.getElementById('ng-email').value.trim();
+  if (!nombre || !email) { showToast('Campos obligatorios', 'error'); return; }
+  try {
+    await sbInsert('gestores', { nombre: nombre, email: email, max_plantas: parseInt(document.getElementById('ng-max').value) || 1, activo: true, rol: 'gestor' });
+    closeModal(); showToast('Gestor creado', 'success'); renderAdminGestores();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalEditarGestorAdmin(gestorId) {
+  sbQuery('gestores', { select: '*', filters: ['id=eq.' + gestorId] }).then(function(rows) {
+    if (!rows || rows.length === 0) return;
+    var g = rows[0];
+    var body = '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="eg-nombre" value="' + (g.nombre || '') + '"></div>';
+    body += '<div class="form-group"><label class="form-label">Email</label><input class="form-input" id="eg-email" value="' + (g.email || '') + '"></div>';
+    body += '<div class="form-group"><label class="form-label">Máximo de plantas</label><input class="form-input" id="eg-max" type="number" value="' + (g.max_plantas || 1) + '" min="1"></div>';
+    body += '<div class="form-group"><label class="form-label">Estado</label><select class="form-input" id="eg-activo">';
+    body += '<option value="true"' + (g.activo !== false ? ' selected' : '') + '>Activo</option>';
+    body += '<option value="false"' + (g.activo === false ? ' selected' : '') + '>Inactivo (bloqueado)</option></select></div>';
+    openModal('Editar gestor', body,
+      '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+      '<button class="btn btn-blue" onclick="guardarGestorAdmin(\'' + gestorId + '\')">Guardar</button>');
+  });
+}
+
+async function guardarGestorAdmin(gestorId) {
+  try {
+    await sbUpdate('gestores', gestorId, {
+      nombre: document.getElementById('eg-nombre').value.trim(),
+      email: document.getElementById('eg-email').value.trim(),
+      max_plantas: parseInt(document.getElementById('eg-max').value) || 1,
+      activo: document.getElementById('eg-activo').value === 'true'
+    });
+    closeModal(); showToast('Gestor actualizado', 'success'); renderAdminGestores();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function modalAsignarPlantas(gestorId) {
+  var plantas = [];
+  try { plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] }); } catch(e) {}
+  var asignadas = [];
+  try { asignadas = await sbQuery('gestor_plantas', { select: '*', filters: ['gestor_id=eq.' + gestorId] }); } catch(e) {}
+  var asignadasIds = asignadas.map(function(gp) { return gp.planta_id; });
+
+  var body = '<div style="font-size:13px;color:var(--text2);margin-bottom:12px">Selecciona las plantas que este gestor puede administrar:</div>';
+  plantas.forEach(function(p) {
+    var checked = asignadasIds.includes(p.id);
+    body += '<label style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">';
+    body += '<input type="checkbox" value="' + p.id + '" class="gp-check"' + (checked ? ' checked' : '') + '>';
+    body += '<span style="font-weight:600">' + p.nombre + '</span>';
+    body += '</label>';
+  });
+
+  openModal('Asignar plantas', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="guardarAsignacionPlantas(\'' + gestorId + '\')">Guardar</button>');
+}
+
+async function guardarAsignacionPlantas(gestorId) {
+  var checks = document.querySelectorAll('.gp-check');
+  var seleccionadas = [];
+  checks.forEach(function(ch) { if (ch.checked) seleccionadas.push(ch.value); });
+
+  try {
+    // Delete all current assignments
+    var existentes = await sbQuery('gestor_plantas', { select: 'id', filters: ['gestor_id=eq.' + gestorId] });
+    for (var i = 0; i < existentes.length; i++) {
+      await sbDelete('gestor_plantas', existentes[i].id);
+    }
+    // Create new assignments
+    for (var j = 0; j < seleccionadas.length; j++) {
+      await sbInsert('gestor_plantas', { gestor_id: gestorId, planta_id: seleccionadas[j] });
+    }
+    closeModal(); showToast(seleccionadas.length + ' planta(s) asignada(s)', 'success'); renderAdminGestores();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
+// SUPER ADMIN — NUEVO AÑO
+// =====================================================================
+function renderAdminNuevoAno() {
+  var html = '<div class="card"><div class="card-header"><span class="card-title">Crear nuevo año</span></div><div class="card-body">';
+  html += '<div style="font-size:13px;color:var(--text2);margin-bottom:16px">Copia la estructura de una planta (áreas, letras, empleados, polivalencias) a un nuevo año. Los ciclos se crean vacíos para que el gestor los configure.</div>';
+  html += '<div class="grid-2">';
+  html += '<div class="form-group"><label class="form-label">Planta</label><select class="form-input" id="na-planta">';
+  state.plantasDisponibles.forEach(function(p) { html += '<option value="' + p.id + '">' + p.nombre + '</option>'; });
+  html += '</select></div>';
+  html += '<div class="form-group"><label class="form-label">Nuevo año</label><input class="form-input" id="na-year" type="number" value="' + (new Date().getFullYear() + 1) + '"></div>';
+  html += '</div>';
+  html += '<button class="btn btn-blue" onclick="ejecutarNuevoAno()">Crear año</button>';
+  html += '</div></div>';
+  document.getElementById('page-admin-nuevo-ano').innerHTML = html;
+}
+
+async function ejecutarNuevoAno() {
+  var plantaId = document.getElementById('na-planta').value;
+  var year = parseInt(document.getElementById('na-year').value);
+  if (!plantaId || !year) { showToast('Selecciona planta y año', 'error'); return; }
+  if (!confirm('¿Crear estructura para el año ' + year + '? Los ciclos se crearán vacíos.')) return;
+
+  try {
+    showToast('Creando año ' + year + '...');
+    // Copy festivos nacionales for new year
+    var festivos = await sbQuery('festivos', { select: '*', filters: ['planta_id=eq.' + plantaId] });
+    var festivosCopied = 0;
+    for (var i = 0; i < festivos.length; i++) {
+      var f = festivos[i];
+      var newFecha = f.fecha.replace(/^\d{4}/, year);
+      try {
+        await sbInsert('festivos', { planta_id: plantaId, fecha: newFecha, nombre: f.nombre });
+        festivosCopied++;
+      } catch(ef) {}
+    }
+
+    // Create empty ciclos for each letra
+    var letras = await sbQuery('letras', { select: '*', filters: ['planta_id=eq.' + plantaId] });
+    for (var j = 0; j < letras.length; j++) {
+      await sbInsert('ciclos_config', {
+        letra_id: letras[j].id,
+        "año": year,
+        orden: 1,
+        tipo: 'turno',
+        fecha_inicio: year + '-01-01',
+        fecha_fin: year + '-12-31',
+        turno_inicial: 'M'
+      });
+    }
+
+    // Create empty vacaciones_rondas for new year
+    for (var r = 1; r <= 3; r++) {
+      var nombres = ['Ronda 1 — Vacaciones principales', 'Ronda 2 — Vacaciones secundarias', 'Ronda 3 — Días PRL'];
+      var diasR = [12, 10, 4];
+      await sbInsert('vacaciones_rondas', {
+        planta_id: plantaId,
+        numero_ronda: r,
+        nombre: nombres[r-1],
+        dias: diasR[r-1],
+        abierta: false
+      });
+    }
+
+    showToast('Año ' + year + ' creado: ' + festivosCopied + ' festivos, ' + letras.length + ' ciclos, 3 rondas vacaciones', 'success');
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 // =====================================================================
