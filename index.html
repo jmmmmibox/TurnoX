@@ -1244,12 +1244,12 @@ async function loginGestor() {
       return;
     }
 
-    if (plantas.length === 1) {
-      // Single plant → enter directly
+    if (plantas.length === 1 && !esSuperAdmin) {
+      // Single plant, normal gestor → enter directly
       PLANTA_ID = plantas[0].id;
-      enterApp({ tipo: esSuperAdmin ? 'superadmin' : 'gestor', id: userId, nombre: nombre, email: email });
-    } else {
-      // Multiple plants or super admin → show selector
+      enterApp({ tipo: 'gestor', id: userId, nombre: nombre, email: email });
+    } else if (esSuperAdmin || plantas.length > 1) {
+      // Super admin always sees selector, or gestor with multiple plants
       mostrarSelectorPlanta({ tipo: esSuperAdmin ? 'superadmin' : 'gestor', id: userId, nombre: nombre, email: email }, plantas);
     }
   } catch (e) {
