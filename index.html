@@ -2011,7 +2011,7 @@ function renderCalendarioInner() {
         let tdStyle = '';
         if (isToday) tdStyle = 'background:#EFF6FF;';
         else if (desc) tdStyle = 'background:#FEF8F8;';
-        html += '<td style="' + tdStyle + '"' + (state.user.tipo === 'gestor' ? ' onclick="editarTurno(\'' + emp.id + '\',\'' + d.ds + '\',\'' + t + '\')"' : '') + '>';
+        html += '<td style="' + tdStyle + '"' + (state.user.tipo === 'gestor' || state.user.tipo === 'superadmin' ? ' onclick="editarTurno(\'' + emp.id + '\',\'' + d.ds + '\',\'' + t + '\')"' : '') + '>';
         html += '<span class="turno-cell ' + (t || 'empty') + '">' + (t || '·') + '</span></td>';
       });
       html += '</tr>';
