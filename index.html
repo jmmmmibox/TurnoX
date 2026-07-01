@@ -4603,7 +4603,7 @@ function removeTipoCobertura(i) { state.tiposCobertura.splice(i, 1); closeModal(
 
 
 function editarTurno(empId, fecha, turnoActual) {
-  if (state.user.tipo !== 'gestor') return;
+  if (state.user.tipo !== 'gestor' && state.user.tipo !== 'superadmin') return;
   const emp = state.empleados.find(e => e.id === empId);
   let body = '<p style="margin-bottom:12px">Turno actual: <span class="turno-badge ' + turnoActual + '">' + turnoActual + '</span> ' + turnoLabel(turnoActual) + '</p>';
   body += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
