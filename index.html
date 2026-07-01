@@ -1676,65 +1676,155 @@ function renderDashboard() {
   var esHoy = fechaVer === todayStr();
   const total = state.empleados.length;
 
-  // Calcular turnos de todos + área real que cubren en la fecha seleccionada
+  // Calcular turnos de todos + área real
   const empTurnos = state.empleados.map(function(e) {
     var turno = calcTurno(e, fechaVer);
     var turnoEditado = state.turnosEditados.find(function(t) { return t.empleado_id === e.id && t.fecha === fechaVer; });
     var areaRealId = (turnoEditado && turnoEditado.area_id) ? turnoEditado.area_id : e.area_principal_id;
     return { emp: e, turno: turno, areaRealId: areaRealId };
   });
-  const trabajando = empTurnos.filter(et => ['M','T','N','R','S','L'].includes(et.turno));
-  const enBaja = empTurnos.filter(et => et.turno === 'B' || et.turno === 'V');
-  const manana = empTurnos.filter(et => et.turno === 'M');
-  const tarde = empTurnos.filter(et => et.turno === 'T');
-  const noche = empTurnos.filter(et => et.turno === 'N');
-  const refuerzo = empTurnos.filter(et => et.turno === 'R');
-  const sol = empTurnos.filter(et => et.turno === 'S');
-  const luna = empTurnos.filter(et => et.turno === 'L');
+  const trabajando = empTurnos.filter(function(et) { return ['M','T','N','R','S','L'].includes(et.turno); });
+  const enBaja = empTurnos.filter(function(et) { return et.turno === 'B'; });
+  const enVac = empTurnos.filter(function(et) { return et.turno === 'V'; });
+  const ausentes = enBaja.concat(enVac);
+  const descanso = empTurnos.filter(function(et) { return et.turno === 'D' || !et.turno; });
+  const manana = empTurnos.filter(function(et) { return et.turno === 'M'; });
+  const tarde = empTurnos.filter(function(et) { return et.turno === 'T'; });
+  const noche = empTurnos.filter(function(et) { return et.turno === 'N'; });
+  const refuerzo = empTurnos.filter(function(et) { return et.turno === 'R'; });
+  const sol = empTurnos.filter(function(et) { return et.turno === 'S'; });
+  const luna = empTurnos.filter(function(et) { return et.turno === 'L'; });
 
-  // Selector de fecha
-  let html = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">';
+  // Cobertura por franja
+  var coberturas = [
+    { label: 'Mañana', combined: manana.concat(sol) },
+    { label: 'Tarde', combined: tarde.concat(sol).concat(luna) },
+    { label: 'Noche', combined: noche.concat(luna) },
+  ].map(function(f) {
+    f.ok = state.areas.every(function(a) { return f.combined.some(function(et) { return et.areaRealId === a.id; }); });
+    f.faltantes = state.areas.filter(function(a) { return !f.combined.some(function(et) { return et.areaRealId === a.id; }); });
+    return f;
+  });
+  var todoCubierto = coberturas.every(function(c) { return c.ok; });
+
+  // Pendientes async
+  var pendDL = 0, pendVac = 0, pendInt = 0;
+
+  let html = '';
+
+  // === SELECTOR DE FECHA ===
+  html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">';
   html += '<button class="cal-nav-btn" onclick="state.dashFecha=shiftDate(state.dashFecha,-1);renderDashboard()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>';
   html += '<input type="date" class="form-input" value="' + fechaVer + '" onchange="state.dashFecha=this.value;renderDashboard()" style="padding:6px 10px;font-size:13px;font-weight:600;width:160px;text-align:center">';
   html += '<button class="cal-nav-btn" onclick="state.dashFecha=shiftDate(state.dashFecha,1);renderDashboard()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>';
   if (!esHoy) html += '<button class="btn btn-sm btn-outline" onclick="state.dashFecha=todayStr();renderDashboard()">Hoy</button>';
-  html += '<span style="font-size:13px;color:var(--text2)">' + formatDateES(fechaVer) + (esHoy ? ' <strong style="color:var(--primary-light)">(hoy)</strong>' : '') + '</span>';
+  html += '<span style="font-size:15px;font-weight:700;color:var(--text)">' + formatDateES(fechaVer) + '</span>';
+  if (esHoy) html += '<span style="font-size:11px;background:var(--primary-light);color:white;padding:2px 10px;border-radius:10px;font-weight:600">HOY</span>';
   html += '</div>';
 
-  // Empleados ausentes
-  if (enBaja.length > 0) {
-    html += '<div class="alert alert-warning" style="margin-bottom:16px"><span><strong>' + enBaja.length + ' empleado' + (enBaja.length > 1 ? 's' : '') + ' ausente' + (enBaja.length > 1 ? 's' : '') + ':</strong> ';
-    html += enBaja.map(et => et.emp.nombre + ' ' + et.emp.apellidos + ' <span class="turno-badge ' + et.turno + '" style="font-size:10px;width:18px;height:18px">' + et.turno + '</span>').join(', ');
-    html += '</span></div>';
+  // === FILA 1: CARDS DE RESUMEN ===
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">';
+
+  // Card: Trabajando
+  html += '<div style="background:white;border-radius:12px;padding:16px;border:1px solid var(--border);display:flex;align-items:center;gap:14px">';
+  html += '<div style="width:48px;height:48px;border-radius:12px;background:#DCFCE7;display:flex;align-items:center;justify-content:center;font-size:22px">👷</div>';
+  html += '<div><div style="font-size:24px;font-weight:800;color:var(--text)">' + trabajando.length + '</div>';
+  html += '<div style="font-size:11px;color:var(--text2)">Trabajando</div></div></div>';
+
+  // Card: Ausentes
+  html += '<div style="background:white;border-radius:12px;padding:16px;border:1px solid ' + (ausentes.length > 0 ? '#FCA5A5' : 'var(--border)') + ';display:flex;align-items:center;gap:14px;cursor:' + (ausentes.length > 0 ? 'pointer' : 'default') + '"' + (ausentes.length > 0 ? ' onclick="navigateTo(\'ausencias\')"' : '') + '>';
+  html += '<div style="width:48px;height:48px;border-radius:12px;background:' + (ausentes.length > 0 ? '#FEE2E2' : '#F1F5F9') + ';display:flex;align-items:center;justify-content:center;font-size:22px">' + (ausentes.length > 0 ? '🚨' : '✅') + '</div>';
+  html += '<div><div style="font-size:24px;font-weight:800;color:' + (ausentes.length > 0 ? '#991B1B' : 'var(--text)') + '">' + ausentes.length + '</div>';
+  html += '<div style="font-size:11px;color:var(--text2)">Ausentes</div></div></div>';
+
+  // Card: Cobertura
+  html += '<div style="background:white;border-radius:12px;padding:16px;border:1px solid ' + (todoCubierto ? '#86EFAC' : '#FCA5A5') + ';display:flex;align-items:center;gap:14px">';
+  html += '<div style="width:48px;height:48px;border-radius:12px;background:' + (todoCubierto ? '#DCFCE7' : '#FEE2E2') + ';display:flex;align-items:center;justify-content:center;font-size:22px">' + (todoCubierto ? '🛡️' : '⚠️') + '</div>';
+  html += '<div><div style="font-size:24px;font-weight:800;color:' + (todoCubierto ? '#166534' : '#991B1B') + '">' + (todoCubierto ? 'OK' : '!') + '</div>';
+  html += '<div style="font-size:11px;color:var(--text2)">' + (todoCubierto ? 'Todo cubierto' : 'Cobertura incompleta') + '</div></div></div>';
+
+  // Card: Descanso
+  html += '<div style="background:white;border-radius:12px;padding:16px;border:1px solid var(--border);display:flex;align-items:center;gap:14px">';
+  html += '<div style="width:48px;height:48px;border-radius:12px;background:#F1F5F9;display:flex;align-items:center;justify-content:center;font-size:22px">😴</div>';
+  html += '<div><div style="font-size:24px;font-weight:800;color:var(--text)">' + descanso.length + '</div>';
+  html += '<div style="font-size:11px;color:var(--text2)">Descanso</div></div></div>';
+
+  html += '</div>';
+
+  // === FILA 2: COBERTURA VISUAL ===
+  html += '<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">';
+  coberturas.forEach(function(c) {
+    var bgColor = c.ok ? '#F0FDF4' : '#FEF2F2';
+    var borderColor = c.ok ? '#86EFAC' : '#FCA5A5';
+    var textColor = c.ok ? '#166534' : '#991B1B';
+    html += '<div style="flex:1;min-width:200px;background:' + bgColor + ';border:1px solid ' + borderColor + ';border-radius:10px;padding:12px 16px">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
+    html += '<span style="font-size:13px;font-weight:700;color:' + textColor + '">' + c.label + '</span>';
+    html += '<span style="font-size:12px;font-weight:700;color:' + textColor + '">' + (c.ok ? '✓ Completo' : '⚠ Incompleto') + '</span></div>';
+    if (!c.ok) {
+      html += '<div style="font-size:11px;color:#991B1B;margin-top:4px">Falta: ';
+      html += c.faltantes.map(function(a) { return '<span style="font-weight:600">' + a.nombre + '</span>'; }).join(', ');
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:11px;color:#166534">' + c.combined.length + ' empleados · ' + state.areas.length + ' áreas cubiertas</div>';
+    }
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // === FILA 3: AUSENTES (si hay) ===
+  if (ausentes.length > 0) {
+    html += '<div class="card mb-4" style="border-left:4px solid #EF4444"><div class="card-header" style="background:#FEF2F2">';
+    html += '<span class="card-title" style="color:#991B1B">Ausentes</span></div>';
+    html += '<div class="card-body" style="padding:8px 16px">';
+    ausentes.forEach(function(et) {
+      var l = getLetra(et.emp.letra_id);
+      var a = getArea(et.emp.area_principal_id);
+      // Check if there's a note (concepto)
+      var te = state.turnosEditados.find(function(t) { return t.empleado_id === et.emp.id && t.fecha === fechaVer; });
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)">';
+      html += '<span class="turno-badge ' + et.turno + '">' + et.turno + '</span>';
+      html += '<span style="font-size:13px;font-weight:600">' + et.emp.nombre + ' ' + et.emp.apellidos + '</span>';
+      html += '<span class="letra-badge" style="background:' + (l ? l.color + '22' : '#eee') + ';color:' + (l ? l.color : '#999') + '">' + (l ? l.nombre : '?') + '</span>';
+      html += '<span style="font-size:11px;color:var(--text3)">' + (a ? a.nombre : '') + '</span>';
+      if (te && te.notas) html += '<span style="font-size:10px;color:var(--text2);background:var(--bg);padding:1px 6px;border-radius:4px">' + te.notas + '</span>';
+      html += '</div>';
+    });
+    html += '</div></div>';
   }
 
+  // === PENDIENTES (solo si es hoy y es gestor) ===
+  if (esHoy && (state.user.tipo === 'gestor' || state.user.tipo === 'superadmin')) {
+    html += '<div id="dash-pendientes"></div>';
+    // Load async
+    setTimeout(function() { cargarPendientesDash(); }, 100);
+  }
+
+  // === FILA 4: TABLA DE TURNOS + COBERTURA POR ÁREAS ===
   html += '<div class="dashboard-grid">';
 
-  // === TABLA DE TURNOS agrupada por turno y área ===
-  html += '<div class="card"><div class="card-header"><span class="card-title">' + formatDateES(fechaVer) + (esHoy ? ' (hoy)' : '') + '</span>';
-  html += '<button class="btn btn-sm btn-outline" onclick="navigateTo(\'calendario\')">Ver calendario</button></div>';
-  html += '<div style="overflow-x:auto">';
+  // Tabla de turnos
+  html += '<div class="card"><div class="card-header"><span class="card-title">Distribución de turnos</span>';
+  html += '<button class="btn btn-sm btn-outline" onclick="navigateTo(\'calendario\')">Calendario</button></div>';
+  html += '<div style="overflow-x:auto;max-height:60vh">';
 
-  // Por cada turno: M, S (entre M y T), T, L (entre T y N), N, R
   [
-    { tipo: 'M', label: 'Mañana · 06:00–14:00', color: 'var(--turno-M)', textColor: 'var(--turno-M-text)', list: manana },
-    { tipo: 'S', label: 'Sol · 06:00–18:00 (12h)', color: 'var(--turno-S)', textColor: 'var(--turno-S-text)', list: sol },
-    { tipo: 'T', label: 'Tarde · 14:00–22:00', color: 'var(--turno-T)', textColor: 'var(--turno-T-text)', list: tarde },
-    { tipo: 'L', label: 'Luna · 18:00–06:00 (12h)', color: 'var(--turno-L)', textColor: 'var(--turno-L-text)', list: luna },
-    { tipo: 'N', label: 'Noche · 22:00–06:00', color: 'var(--turno-N)', textColor: 'var(--turno-N-text)', list: noche },
-    { tipo: 'R', label: 'Equipo de Refuerzo', color: 'var(--turno-R)', textColor: 'var(--turno-R-text)', list: refuerzo },
-  ].forEach(turno => {
+    { tipo: 'M', label: 'Mañana · 06–14h', color: 'var(--turno-M)', textColor: 'var(--turno-M-text)', list: manana },
+    { tipo: 'S', label: 'Sol · 06–18h (12h)', color: 'var(--turno-S)', textColor: 'var(--turno-S-text)', list: sol },
+    { tipo: 'T', label: 'Tarde · 14–22h', color: 'var(--turno-T)', textColor: 'var(--turno-T-text)', list: tarde },
+    { tipo: 'L', label: 'Luna · 18–06h (12h)', color: 'var(--turno-L)', textColor: 'var(--turno-L-text)', list: luna },
+    { tipo: 'N', label: 'Noche · 22–06h', color: 'var(--turno-N)', textColor: 'var(--turno-N-text)', list: noche },
+    { tipo: 'R', label: 'Refuerzo', color: 'var(--turno-R)', textColor: 'var(--turno-R-text)', list: refuerzo },
+  ].forEach(function(turno) {
     if (turno.list.length === 0) return;
     html += '<div style="padding:6px 16px;background:' + turno.color + ';display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">';
     html += '<span style="font-size:12px;font-weight:700;color:' + turno.textColor + '">' + turno.label + '</span>';
-    html += '<span style="font-size:11px;font-weight:600;color:' + turno.textColor + '">' + turno.list.length + ' empleados</span></div>';
-
-    // Agrupar por área real dentro de este turno
-    state.areas.forEach(area => {
-      const enArea = turno.list.filter(et => et.areaRealId === area.id);
+    html += '<span style="font-size:11px;font-weight:600;color:' + turno.textColor + '">' + turno.list.length + '</span></div>';
+    state.areas.forEach(function(area) {
+      var enArea = turno.list.filter(function(et) { return et.areaRealId === area.id; });
       if (enArea.length === 0) return;
-      enArea.forEach((et, idx) => {
-        const l = getLetra(et.emp.letra_id);
+      enArea.forEach(function(et) {
+        var l = getLetra(et.emp.letra_id);
         var areaReal = getArea(et.areaRealId);
         var esIntercambio = et.areaRealId !== et.emp.area_principal_id;
         html += '<div style="display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid var(--border)">';
@@ -1746,42 +1836,48 @@ function renderDashboard() {
       });
     });
   });
-
   html += '</div></div>';
 
-  // === RESUMEN POR ÁREA (lado derecho) ===
+  // Cobertura por áreas
   html += '<div style="display:flex;flex-direction:column;gap:16px">';
-
-  // Por cada turno, mostrar cobertura de áreas (S cubre M+T, L cubre T+N)
   [
     { tipo: 'M', label: 'Mañana', list: manana, extras: sol, color: 'var(--turno-M-text)', bg: 'var(--turno-M)' },
     { tipo: 'T', label: 'Tarde', list: tarde, extras: sol.concat(luna), color: 'var(--turno-T-text)', bg: 'var(--turno-T)' },
     { tipo: 'N', label: 'Noche', list: noche, extras: luna, color: 'var(--turno-N-text)', bg: 'var(--turno-N)' },
-  ].forEach(turno => {
+  ].forEach(function(turno) {
     var combined = turno.list.concat(turno.extras);
     if (combined.length === 0) return;
+    var allCovered = state.areas.every(function(a) { return combined.some(function(et) { return et.areaRealId === a.id; }); });
     html += '<div class="card"><div class="card-header" style="background:' + turno.bg + '">';
     html += '<span class="card-title" style="color:' + turno.color + '">Áreas — ' + turno.label + '</span>';
-    const allCovered = state.areas.every(a => combined.some(et => et.areaRealId === a.id));
-    if (allCovered) html += '<span style="font-size:11px;font-weight:700;color:#166534;background:#DCFCE7;padding:2px 8px;border-radius:10px">✓ OK</span>';
-    else html += '<span style="font-size:11px;font-weight:700;color:#991B1B;background:#FEE2E2;padding:2px 8px;border-radius:10px">⚠ Incompleto</span>';
+    html += '<span style="font-size:11px;font-weight:700;color:' + (allCovered ? '#166534' : '#991B1B') + ';background:' + (allCovered ? '#DCFCE7' : '#FEE2E2') + ';padding:2px 8px;border-radius:10px">' + (allCovered ? '✓ OK' : '⚠ Incompleto') + '</span>';
     html += '</div><div class="card-body" style="padding:8px 16px">';
-    state.areas.forEach(area => {
-      const count = combined.filter(et => et.areaRealId === area.id).length;
+    state.areas.forEach(function(area) {
+      var empsArea = combined.filter(function(et) { return et.areaRealId === area.id; });
+      var count = empsArea.length;
       html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)">';
-      html += '<div style="display:flex;align-items:center;gap:6px"><div style="width:6px;height:6px;border-radius:50%;background:' + area.color + '"></div>';
+      html += '<div style="display:flex;align-items:center;gap:6px"><div style="width:8px;height:8px;border-radius:50%;background:' + (count > 0 ? '#22C55E' : '#EF4444') + '"></div>';
       html += '<span style="font-size:12px">' + area.nombre + '</span></div>';
-      html += '<span style="font-size:12px;font-weight:700;color:' + (count > 0 ? 'var(--success)' : 'var(--danger)') + '">' + count + '</span></div>';
+      if (count > 0) {
+        html += '<div style="display:flex;align-items:center;gap:4px">';
+        empsArea.forEach(function(et) {
+          var l2 = getLetra(et.emp.letra_id);
+          html += '<span style="font-size:9px;background:' + (l2 ? l2.color + '22' : '#eee') + ';color:' + (l2 ? l2.color : '#999') + ';padding:1px 4px;border-radius:3px;font-weight:600">' + (l2 ? l2.nombre : '') + '</span>';
+        });
+        html += '</div>';
+      } else {
+        html += '<span style="font-size:11px;font-weight:700;color:var(--danger)">SIN CUBRIR</span>';
+      }
+      html += '</div>';
     });
     html += '</div></div>';
   });
 
-  // Refuerzo resumen si hay
   if (refuerzo.length > 0) {
     html += '<div class="card"><div class="card-header" style="background:var(--turno-R)"><span class="card-title" style="color:var(--turno-R-text)">Refuerzo</span>';
-    html += '<span style="font-size:11px;font-weight:700;color:var(--turno-R-text)">' + refuerzo.length + ' empleados</span></div>';
+    html += '<span style="font-size:11px;font-weight:700;color:var(--turno-R-text)">' + refuerzo.length + '</span></div>';
     html += '<div class="card-body" style="padding:8px 16px">';
-    refuerzo.forEach(et => {
+    refuerzo.forEach(function(et) {
       var areaReal = getArea(et.areaRealId);
       html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">';
       html += '<span style="font-size:12px">' + et.emp.nombre + ' ' + et.emp.apellidos + '</span>';
@@ -1792,6 +1888,46 @@ function renderDashboard() {
 
   html += '</div></div>';
   document.getElementById('page-dashboard').innerHTML = html;
+}
+
+async function cargarPendientesDash() {
+  var container = document.getElementById('dash-pendientes');
+  if (!container) return;
+  try {
+    var pendDL = await sbQuery('solicitudes_dias_libres', { select: 'id', filters: ['estado=eq.pendiente'] });
+    var pendVac = await sbQuery('vacaciones_solicitudes', { select: 'id', filters: ['estado=eq.pendiente'] });
+    var pendInt = await sbQuery('intercambios', { select: 'id', filters: ['estado=eq.pendiente'] });
+
+    var dlCount = pendDL ? pendDL.length : 0;
+    var vacCount = pendVac ? pendVac.length : 0;
+    var intCount = pendInt ? pendInt.length : 0;
+    var totalPend = dlCount + vacCount + intCount;
+
+    if (totalPend === 0) { container.innerHTML = ''; return; }
+
+    var html = '<div class="card mb-4" style="border-left:4px solid var(--warning)"><div class="card-header" style="background:#FEF9C3">';
+    html += '<span class="card-title" style="color:#92400E">Pendientes de gestión</span>';
+    html += '<span style="font-size:12px;font-weight:700;color:#92400E;background:#FDE68A;padding:2px 10px;border-radius:10px">' + totalPend + '</span></div>';
+    html += '<div class="card-body" style="padding:8px 16px;display:flex;gap:12px;flex-wrap:wrap">';
+
+    if (dlCount > 0) {
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:#FFF7ED;border-radius:8px;cursor:pointer" onclick="navigateTo(\'dias-libres\')">';
+      html += '<span style="font-size:20px">📋</span><div><div style="font-size:14px;font-weight:700;color:var(--text)">' + dlCount + '</div>';
+      html += '<div style="font-size:11px;color:var(--text2)">Días libres</div></div></div>';
+    }
+    if (vacCount > 0) {
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:#F0FDF4;border-radius:8px;cursor:pointer" onclick="navigateTo(\'vacaciones\')">';
+      html += '<span style="font-size:20px">🌴</span><div><div style="font-size:14px;font-weight:700;color:var(--text)">' + vacCount + '</div>';
+      html += '<div style="font-size:11px;color:var(--text2)">Vacaciones</div></div></div>';
+    }
+    if (intCount > 0) {
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:#EFF6FF;border-radius:8px;cursor:pointer" onclick="navigateTo(\'intercambios\')">';
+      html += '<span style="font-size:20px">🔄</span><div><div style="font-size:14px;font-weight:700;color:var(--text)">' + intCount + '</div>';
+      html += '<div style="font-size:11px;color:var(--text2)">Intercambios</div></div></div>';
+    }
+    html += '</div></div>';
+    container.innerHTML = html;
+  } catch(e) { container.innerHTML = ''; }
 }
 
 function statCard(label, value, sub, bg, color) {
