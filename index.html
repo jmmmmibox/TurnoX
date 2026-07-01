@@ -1004,6 +1004,7 @@ td.col-descubierto { background: #FEF2F2 !important; }
       <div class="page" id="page-vacaciones"></div>
       <div class="page" id="page-intercambios"></div>
       <div class="page" id="page-ausencias"></div>
+      <div class="page" id="page-dias-libres"></div>
       <div class="page" id="page-informes"></div>
       <div class="page" id="page-configuracion"></div>
       <div class="page" id="page-mi-turno"></div>
@@ -1512,6 +1513,7 @@ const NAV_GESTOR = [
   { id: 'vacaciones', label: 'Vacaciones', icon: 'sun' },
   { id: 'intercambios', label: 'Intercambios', icon: 'shuffle' },
   { id: 'ausencias', label: 'Ausencias', icon: 'user-x' },
+  { id: 'dias-libres', label: 'Días Libres', icon: 'sun' },
   { separator: 'Sistema' },
   { id: 'informes', label: 'Informes', icon: 'bar-chart' },
   { id: 'configuracion', label: 'Configuración', icon: 'settings' },
@@ -1595,6 +1597,7 @@ function navigateTo(page) {
     'dashboard': 'Dashboard', 'calendario': 'Calendario de Turnos',
     'empleados': 'Empleados', 'vacaciones': 'Vacaciones',
     'intercambios': 'Intercambios', 'ausencias': 'Ausencias y Coberturas',
+    'dias-libres': 'Solicitudes de Días Libres',
     'informes': 'Informes', 'configuracion': 'Configuración',
     'mi-turno': 'Mi Turno', 'mi-calendario': 'Mi Calendario',
     'mis-solicitudes': 'Mis Solicitudes',
@@ -1616,6 +1619,7 @@ function renderPage(page) {
     'vacaciones': renderVacaciones,
     'intercambios': renderIntercambios,
     'ausencias': renderAusencias,
+    'dias-libres': renderDiasLibres,
     'informes': renderInformes,
     'configuracion': renderConfiguracion,
     'mi-turno': renderMiTurno,
@@ -2419,6 +2423,244 @@ async function renderIntercambios() {
 }
 
 
+
+// =====================================================================
+// DÍAS LIBRES
+// =====================================================================
+// Conceptos configurables
+if (!state.conceptosDiasLibres) state.conceptosDiasLibres = ['Asuntos propios', 'Cita médica', 'Mudanza', 'Formación', 'Compensación horas extra', 'Acompañamiento familiar', 'Trámites oficiales'];
+
+function modalSolicitarDiaLibre() {
+  var body = '<div class="form-group"><label class="form-label">Concepto</label><select class="form-input" id="sdl-concepto">';
+  state.conceptosDiasLibres.forEach(function(c) { body += '<option value="' + c + '">' + c + '</option>'; });
+  body += '</select></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Desde</label><input type="date" class="form-input" id="sdl-inicio"></div>';
+  body += '<div class="form-group"><label class="form-label">Hasta</label><input type="date" class="form-input" id="sdl-fin"></div></div>';
+  body += '<div class="form-group"><label class="form-label">Notas / Motivo</label><textarea class="form-input" id="sdl-notas" rows="2" placeholder="Opcional"></textarea></div>';
+  openModal('Solicitar día(s) libre(s)', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="enviarSolicitudDiaLibre()">Solicitar</button>');
+}
+
+async function enviarSolicitudDiaLibre() {
+  var inicio = document.getElementById('sdl-inicio').value;
+  var fin = document.getElementById('sdl-fin').value;
+  if (!inicio) { showToast('Indica la fecha', 'error'); return; }
+  if (!fin) fin = inicio;
+  var dias = Math.round((new Date(fin + 'T12:00:00') - new Date(inicio + 'T12:00:00')) / 86400000) + 1;
+  if (dias < 1) { showToast('La fecha fin debe ser igual o posterior a la de inicio', 'error'); return; }
+  var emp = state.user.empleadoData || state.empleados.find(function(e) { return e.id === state.user.id; });
+  try {
+    await sbInsert('solicitudes_dias_libres', {
+      empleado_id: state.user.id,
+      planta_id: PLANTA_ID,
+      concepto: document.getElementById('sdl-concepto').value,
+      fecha_inicio: inicio,
+      fecha_fin: fin,
+      dias: dias,
+      notas_empleado: document.getElementById('sdl-notas').value,
+      estado: 'pendiente'
+    });
+    // Notificar al gestor
+    try {
+      var gestores = await sbQuery('gestores', { select: 'id', limit: 5 });
+      if (gestores) {
+        for (var g = 0; g < gestores.length; g++) {
+          await sbInsert('notificaciones', { destinatario_gestor_id: gestores[g].id, tipo: 'dias-libres', titulo: 'Solicitud de día libre', mensaje: (emp ? emp.nombre + ' ' + emp.apellidos : 'Un empleado') + ' solicita ' + dias + ' día(s) libre(s) — ' + document.getElementById('sdl-concepto').value });
+        }
+      }
+    } catch(en) {}
+    closeModal();
+    showToast('Solicitud enviada', 'success');
+    renderMisSolicitudes();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalVerDiaLibre(dlId) {
+  sbQuery('solicitudes_dias_libres', { select: '*', filters: ['id=eq.' + dlId] }).then(function(rows) {
+    if (!rows || rows.length === 0) return;
+    var dl = rows[0];
+    var emp = state.empleados.find(function(e) { return e.id === dl.empleado_id; });
+    var body = '<div style="display:flex;flex-direction:column;gap:12px">';
+    body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Empleado</span><span style="font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Concepto</span><span style="font-weight:600">' + dl.concepto + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Desde</span><span>' + formatDateES(dl.fecha_inicio) + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Hasta</span><span>' + formatDateES(dl.fecha_fin) + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Días</span><span style="font-weight:600">' + dl.dias + '</span></div>';
+    body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Estado</span><span class="status-badge ' + dl.estado + '">' + dl.estado + '</span></div>';
+    if (dl.notas_empleado) body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Notas</span><span>' + dl.notas_empleado + '</span></div>';
+    if (dl.notas_gestor) body += '<div style="display:flex;justify-content:space-between"><span style="color:var(--text2)">Respuesta gestor</span><span>' + dl.notas_gestor + '</span></div>';
+    body += '</div>';
+    openModal('Detalle día libre', body, '<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>');
+  });
+}
+
+// GESTOR — Días libres
+async function renderDiasLibres() {
+  if (!state.conceptosDiasLibres) state.conceptosDiasLibres = ['Asuntos propios', 'Cita médica', 'Mudanza', 'Formación', 'Compensación horas extra', 'Acompañamiento familiar', 'Trámites oficiales'];
+  if (!state.dlTab) state.dlTab = 'pendientes';
+
+  var solicitudes = [];
+  try { solicitudes = await sbQuery('solicitudes_dias_libres', { select: '*', order: 'created_at.desc', limit: 100 }); } catch(e) {}
+  if (PLANTA_ID) solicitudes = solicitudes.filter(function(s) { return s.planta_id === PLANTA_ID; });
+
+  var pendientes = solicitudes.filter(function(s) { return s.estado === 'pendiente'; });
+  var resueltas = solicitudes.filter(function(s) { return s.estado !== 'pendiente'; });
+  var lista = state.dlTab === 'pendientes' ? pendientes : resueltas;
+
+  var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">';
+  html += '<h2 style="font-size:15px;font-weight:600">Días Libres</h2>';
+  html += '<button class="btn btn-outline btn-sm" onclick="modalConfigConceptosDL()">Configurar conceptos</button></div>';
+
+  // Tabs
+  html += '<div class="config-tabs" style="margin-bottom:16px">';
+  html += '<button class="config-tab' + (state.dlTab === 'pendientes' ? ' active' : '') + '" onclick="state.dlTab=\'pendientes\';renderDiasLibres()">Pendientes <span style="font-size:10px;background:' + (pendientes.length > 0 ? '#FEF3C7;color:#92400E' : 'var(--bg);color:var(--text3)') + ';padding:1px 6px;border-radius:10px;margin-left:4px">' + pendientes.length + '</span></button>';
+  html += '<button class="config-tab' + (state.dlTab === 'resueltas' ? ' active' : '') + '" onclick="state.dlTab=\'resueltas\';renderDiasLibres()">Resueltas <span style="font-size:10px;background:var(--bg);color:var(--text3);padding:1px 6px;border-radius:10px;margin-left:4px">' + resueltas.length + '</span></button>';
+  html += '</div>';
+
+  html += '<div class="card"><div style="overflow:auto;max-height:65vh"><table class="emp-table"><thead><tr>';
+  html += '<th>Empleado</th><th>Letra</th><th>Concepto</th><th>Fechas</th><th>Días</th><th>Estado</th><th></th>';
+  html += '</tr></thead><tbody>';
+  if (lista.length === 0) {
+    html += '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text3)">Sin solicitudes ' + state.dlTab + '</td></tr>';
+  }
+  lista.forEach(function(dl) {
+    var emp = state.empleados.find(function(e) { return e.id === dl.empleado_id; });
+    var letr = emp ? getLetra(emp.letra_id) : null;
+    html += '<tr>';
+    html += '<td style="font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</td>';
+    html += '<td>' + (letr ? '<span class="letra-badge" style="background:' + letr.color + '22;color:' + letr.color + '">' + letr.nombre + '</span>' : '?') + '</td>';
+    html += '<td>' + dl.concepto + '</td>';
+    html += '<td style="font-size:12px">' + formatDateES(dl.fecha_inicio) + (dl.fecha_inicio !== dl.fecha_fin ? ' – ' + formatDateES(dl.fecha_fin) : '') + '</td>';
+    html += '<td style="font-weight:600">' + dl.dias + '</td>';
+    html += '<td><span class="status-badge ' + dl.estado + '">' + dl.estado + '</span></td>';
+    html += '<td><div style="display:flex;gap:4px">';
+    if (dl.estado === 'pendiente') {
+      html += '<button class="btn btn-sm btn-green" onclick="aprobarDiaLibre(\'' + dl.id + '\',\'' + dl.empleado_id + '\',\'' + dl.fecha_inicio + '\',\'' + dl.fecha_fin + '\',\'' + dl.concepto + '\')">✓</button>';
+      html += '<button class="btn btn-sm btn-red" onclick="rechazarDiaLibre(\'' + dl.id + '\',\'' + dl.empleado_id + '\')">✕</button>';
+    }
+    html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarDiaLibre(\'' + dl.id + '\')">✎</button>';
+    html += '</div></td></tr>';
+  });
+  html += '</tbody></table></div></div>';
+  document.getElementById('page-dias-libres').innerHTML = html;
+}
+
+async function aprobarDiaLibre(dlId, empId, inicio, fin, concepto) {
+  try {
+    await sbUpdate('solicitudes_dias_libres', dlId, { estado: 'aprobada' });
+    // Crear turnos D con notas = concepto
+    var d = new Date(inicio + 'T12:00:00');
+    var finD = new Date(fin + 'T12:00:00');
+    while (d <= finD) {
+      var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      try {
+        var ex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + ds] });
+        if (ex && ex.length > 0) await sbUpdate('turnos', ex[0].id, { tipo: 'D', editado_manualmente: true, notas: concepto });
+        else await sbInsert('turnos', { empleado_id: empId, fecha: ds, tipo: 'D', editado_manualmente: true, notas: concepto });
+      } catch(e2) {}
+      d.setDate(d.getDate() + 1);
+    }
+    try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
+    // Notificar al empleado
+    try { await sbInsert('notificaciones', { destinatario_empleado_id: empId, tipo: 'dias-libres', titulo: 'Día libre aprobado', mensaje: 'Tu solicitud de ' + concepto + ' del ' + formatDateES(inicio) + ' ha sido aprobada.' }); } catch(en) {}
+    showToast('Aprobada y reflejada en calendario', 'success');
+    renderDiasLibres();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function rechazarDiaLibre(dlId, empId) {
+  var notas = prompt('Motivo del rechazo (opcional):') || '';
+  try {
+    await sbUpdate('solicitudes_dias_libres', dlId, { estado: 'rechazada', notas_gestor: notas });
+    try { await sbInsert('notificaciones', { destinatario_empleado_id: empId, tipo: 'dias-libres', titulo: 'Día libre rechazado', mensaje: 'Tu solicitud ha sido rechazada.' + (notas ? ' Motivo: ' + notas : '') }); } catch(en) {}
+    showToast('Rechazada');
+    renderDiasLibres();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalEditarDiaLibre(dlId) {
+  sbQuery('solicitudes_dias_libres', { select: '*', filters: ['id=eq.' + dlId] }).then(function(rows) {
+    if (!rows || rows.length === 0) return;
+    var dl = rows[0];
+    var emp = state.empleados.find(function(e) { return e.id === dl.empleado_id; });
+    var body = '<div style="margin-bottom:12px;font-weight:600">' + (emp ? emp.nombre + ' ' + emp.apellidos : '?') + '</div>';
+    body += '<div class="form-group"><label class="form-label">Concepto</label><select class="form-input" id="edl-concepto">';
+    state.conceptosDiasLibres.forEach(function(c) { body += '<option value="' + c + '"' + (dl.concepto === c ? ' selected' : '') + '>' + c + '</option>'; });
+    body += '</select></div>';
+    body += '<div class="grid-2">';
+    body += '<div class="form-group"><label class="form-label">Desde</label><input type="date" class="form-input" id="edl-inicio" value="' + dl.fecha_inicio + '"></div>';
+    body += '<div class="form-group"><label class="form-label">Hasta</label><input type="date" class="form-input" id="edl-fin" value="' + dl.fecha_fin + '"></div></div>';
+    body += '<div class="form-group"><label class="form-label">Estado</label><select class="form-input" id="edl-estado">';
+    ['pendiente','aprobada','rechazada'].forEach(function(e) { body += '<option value="' + e + '"' + (dl.estado === e ? ' selected' : '') + '>' + e + '</option>'; });
+    body += '</select></div>';
+    body += '<div class="form-group"><label class="form-label">Notas gestor</label><textarea class="form-input" id="edl-notas" rows="2">' + (dl.notas_gestor || '') + '</textarea></div>';
+    openModal('Editar solicitud', body,
+      '<button class="btn btn-red" onclick="eliminarDiaLibre(\'' + dl.id + '\',\'' + dl.empleado_id + '\',\'' + dl.fecha_inicio + '\',\'' + dl.fecha_fin + '\')">Eliminar</button><div style="flex:1"></div>' +
+      '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+      '<button class="btn btn-blue" onclick="guardarDiaLibreEdit(\'' + dl.id + '\',\'' + dl.empleado_id + '\')">Guardar</button>');
+  });
+}
+
+async function guardarDiaLibreEdit(dlId, empId) {
+  var estado = document.getElementById('edl-estado').value;
+  var concepto = document.getElementById('edl-concepto').value;
+  var inicio = document.getElementById('edl-inicio').value;
+  var fin = document.getElementById('edl-fin').value;
+  var dias = Math.round((new Date(fin + 'T12:00:00') - new Date(inicio + 'T12:00:00')) / 86400000) + 1;
+  try {
+    await sbUpdate('solicitudes_dias_libres', dlId, { concepto: concepto, fecha_inicio: inicio, fecha_fin: fin, dias: dias, estado: estado, notas_gestor: document.getElementById('edl-notas').value });
+    if (estado === 'aprobada') {
+      var d = new Date(inicio + 'T12:00:00');
+      var finD = new Date(fin + 'T12:00:00');
+      while (d <= finD) {
+        var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        try {
+          var ex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + ds] });
+          if (ex && ex.length > 0) await sbUpdate('turnos', ex[0].id, { tipo: 'D', editado_manualmente: true, notas: concepto });
+          else await sbInsert('turnos', { empleado_id: empId, fecha: ds, tipo: 'D', editado_manualmente: true, notas: concepto });
+        } catch(e2) {}
+        d.setDate(d.getDate() + 1);
+      }
+      try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
+    }
+    closeModal(); showToast('Actualizada', 'success'); renderDiasLibres();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function eliminarDiaLibre(dlId, empId, inicio, fin) {
+  if (!confirm('¿Eliminar esta solicitud?')) return;
+  try {
+    // Restaurar turnos si estaba aprobada
+    var d = new Date(inicio + 'T12:00:00');
+    var finD = new Date(fin + 'T12:00:00');
+    while (d <= finD) {
+      var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      try {
+        var ex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + ds, 'editado_manualmente=eq.true'] });
+        if (ex && ex.length > 0 && ex[0].tipo === 'D') await sbDelete('turnos', ex[0].id);
+      } catch(e2) {}
+      d.setDate(d.getDate() + 1);
+    }
+    await sbDelete('solicitudes_dias_libres', dlId);
+    try { state.turnosEditados = await sbQuery('turnos', { select: '*', filters: ['editado_manualmente=eq.true'] }); } catch(e3) {}
+    closeModal(); showToast('Eliminada', 'success'); renderDiasLibres();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalConfigConceptosDL() {
+  var body = '<div style="font-size:13px;color:var(--text2);margin-bottom:8px">Conceptos disponibles para solicitar días libres:</div>';
+  state.conceptosDiasLibres.forEach(function(c, i) {
+    body += '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="flex:1;font-size:13px">' + c + '</span>';
+    body += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="removeConceptoDL(' + i + ')">x</button></div>';
+  });
+  body += '<div style="display:flex;gap:6px;margin-top:6px"><input class="form-input" id="cfg-nuevo-concepto" placeholder="Nuevo concepto..." style="flex:1;padding:5px 8px;font-size:12px">';
+  body += '<button class="btn btn-sm btn-outline" onclick="addConceptoDL()">+</button></div>';
+  openModal('Configurar conceptos', body, '<button class="btn btn-blue" onclick="closeModal()">Cerrar</button>');
+}
+function addConceptoDL() { var v = document.getElementById('cfg-nuevo-concepto').value.trim(); if (!v) return; state.conceptosDiasLibres.push(v); closeModal(); modalConfigConceptosDL(); }
+function removeConceptoDL(i) { state.conceptosDiasLibres.splice(i, 1); closeModal(); modalConfigConceptosDL(); }
 
 // =====================================================================
 // EDITAR/ELIMINAR INTERCAMBIOS (gestor)
@@ -3576,6 +3818,31 @@ async function renderMisSolicitudes() {
         html += '<button class="btn btn-sm btn-red" onclick="rechazarIntercambioEmp(\'' + ic.id + '\')">Rechazar</button>';
       }
       html += '</div></td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  html += '</div>';
+
+  // === MIS DÍAS LIBRES (tabla) ===
+  var diasLibres = [];
+  try { diasLibres = await sbQuery('solicitudes_dias_libres', { select: '*', filters: ['empleado_id=eq.' + state.user.id], order: 'created_at.desc' }); } catch(e) {}
+
+  html += '<div class="card mb-4"><div class="card-header"><span class="card-title">Mis días libres</span>';
+  html += '<button class="btn btn-sm btn-blue" onclick="modalSolicitarDiaLibre()">+ Solicitar</button></div>';
+  if (diasLibres.length === 0) {
+    html += '<div class="card-body"><div class="empty-state"><p>Sin solicitudes de días libres</p></div></div>';
+  } else {
+    html += '<div style="overflow-x:auto"><table class="emp-table"><thead><tr>';
+    html += '<th>Concepto</th><th>Fechas</th><th>Días</th><th>Estado</th><th></th>';
+    html += '</tr></thead><tbody>';
+    diasLibres.forEach(function(dl) {
+      html += '<tr>';
+      html += '<td style="font-weight:600">' + dl.concepto + '</td>';
+      html += '<td style="font-size:12px">' + formatDateES(dl.fecha_inicio) + (dl.fecha_inicio !== dl.fecha_fin ? ' – ' + formatDateES(dl.fecha_fin) : '') + '</td>';
+      html += '<td style="font-weight:600">' + dl.dias + '</td>';
+      html += '<td><span class="status-badge ' + dl.estado + '">' + dl.estado + '</span></td>';
+      html += '<td><button class="btn btn-sm btn-ghost" onclick="modalVerDiaLibre(\'' + dl.id + '\')">Ver</button></td>';
+      html += '</tr>';
     });
     html += '</tbody></table></div>';
   }
