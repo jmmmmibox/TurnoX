@@ -2126,7 +2126,12 @@ function renderCalendarioInner() {
         if (clickable) html += ' onclick="editarTurno(\'' + emp.id + '\',\'' + d.ds + '\',\'' + t + '\')"';
         html += ' onmouseenter="showCalTooltip(event,\'' + emp.id + '\',\'' + d.ds + '\',\'' + (t || '') + '\')"';
         html += ' onmouseleave="hideCalTooltip()">';
-        html += '<span class="turno-cell ' + (t || 'empty') + '">' + (t || '·') + '</span></td>';
+        var turnoEditado = state.turnosEditados.find(function(te) { return te.empleado_id === emp.id && te.fecha === d.ds; });
+        var tieneNota = turnoEditado && turnoEditado.notas;
+        html += '<span style="position:relative;display:inline-block">';
+        html += '<span class="turno-cell ' + (t || 'empty') + '">' + (t || '·') + '</span>';
+        if (tieneNota) html += '<span style="position:absolute;top:-2px;right:-2px;width:6px;height:6px;background:#EF4444;border-radius:50%;border:1px solid white"></span>';
+        html += '</span></td>';
       });
       html += '</tr>';
     });
