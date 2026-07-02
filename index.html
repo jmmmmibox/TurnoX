@@ -928,13 +928,13 @@ td.col-descubierto { background: #FEF2F2 !important; }
     </div>
     <div id="login-gestor">
       <div class="form-group">
-        <label class="form-label">Email</label>
-        <input type="email" class="form-input" id="g-email" placeholder="gestor@empresa.com" >
+        <label class="form-label">Usuario</label>
+        <input type="text" class="form-input" id="g-email" placeholder="usuario.gestor">
       </div>
       <div class="form-group">
-        <label class="form-label">Contraseña</label>
+        <label class="form-label">Contraseña <span style="font-weight:400;color:var(--text3)">(vacía si es tu primer acceso)</span></label>
         <div class="pass-wrap">
-          <input type="password" class="form-input" id="g-pass" placeholder="••••••••" >
+          <input type="password" class="form-input" id="g-pass" placeholder="Dejar vacío en primer acceso">
           <button type="button" class="pass-toggle" onclick="togglePass('g-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         </div>
       </div>
@@ -1209,77 +1209,120 @@ function switchLoginTab(tab) {
 }
 
 async function loginGestor() {
-  const email = document.getElementById('g-email').value.trim();
+  const input = document.getElementById('g-email').value.trim();
   const pass = document.getElementById('g-pass').value;
   const errEl = document.getElementById('login-error');
   errEl.textContent = '';
-  if (!email || !pass) { errEl.textContent = 'Introduce email y contraseña'; return; }
+  if (!input) { errEl.textContent = 'Introduce tu usuario'; return; }
 
-  try {
-    const r = await sbSignIn(email, pass);
-    if (r.error || !r.access_token) {
-      errEl.textContent = r.error_description || 'Email o contraseña incorrectos';
-      return;
-    }
-    authToken = r.access_token;
-    const nombre = email.split('@')[0];
-    const userId = r.user.id;
-
-    // Check if super admin
-    var esSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
-    state.isSuperAdmin = esSuperAdmin;
-
-    // Ensure gestor row exists
+  // Check if superadmin (email format)
+  if (input.includes('@')) {
+    // Superadmin login via Supabase Auth
+    if (!pass) { errEl.textContent = 'El super admin necesita contraseña'; return; }
     try {
-      var existG = await sbQuery('gestores', { select: 'id', filters: ['id=eq.' + userId] });
-      if (!existG || existG.length === 0) {
-        await sbInsert('gestores', { id: userId, nombre: nombre, email: email, rol: esSuperAdmin ? 'superadmin' : 'gestor' });
+      const r = await sbSignIn(input, pass);
+      if (r.error || !r.access_token) {
+        errEl.textContent = r.error_description || 'Email o contraseña incorrectos';
+        return;
       }
-    } catch(eg) {}
+      authToken = r.access_token;
+      const userId = r.user.id;
 
-    // Ensure super_admins row exists
-    if (esSuperAdmin) {
+      // Check if super admin
+      if (input.toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase()) {
+        errEl.textContent = 'Acceso denegado';
+        return;
+      }
+
+      state.isSuperAdmin = true;
+
+      // Ensure super_admins row exists
       try {
         var existSA = await sbQuery('super_admins', { select: 'id', filters: ['id=eq.' + userId] });
         if (!existSA || existSA.length === 0) {
-          await sbInsert('super_admins', { id: userId, email: email, nombre: nombre });
+          await sbInsert('super_admins', { id: userId, email: input, nombre: 'Super Admin' });
         }
       } catch(esa) {}
-    }
 
-    // Get available plants
-    var plantas = [];
-    if (esSuperAdmin) {
-      // Super admin sees all plants
-      plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] });
-    } else {
-      // Normal gestor: check gestor_plantas
-      var gp = await sbQuery('gestor_plantas', { select: 'planta_id', filters: ['gestor_id=eq.' + userId] });
-      if (gp && gp.length > 0) {
-        var plantaIds = gp.map(function(g) { return g.planta_id; });
-        plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] });
-        plantas = plantas.filter(function(p) { return plantaIds.includes(p.id); });
+      // Ensure gestor row exists for notifications
+      try {
+        var existG = await sbQuery('gestores', { select: 'id', filters: ['id=eq.' + userId] });
+        if (!existG || existG.length === 0) {
+          await sbInsert('gestores', { id: userId, nombre: 'Super Admin', email: input, rol: 'superadmin' });
+        }
+      } catch(eg) {}
+
+      // Get all plants
+      var plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] }) || [];
+      state.plantasDisponibles = plantas;
+      state._pendingUser = { tipo: 'superadmin', id: userId, nombre: 'Super Admin', email: input };
+      mostrarSelectorPlanta(state._pendingUser, plantas);
+
+    } catch(e) {
+      errEl.textContent = 'Error de conexión';
+      console.error('Superadmin login error:', e);
+    }
+    return;
+  }
+
+  // Gestor login via gestores table (username based)
+  try {
+    var rows = await sbQuery('gestores', {
+      select: '*',
+      filters: ['username=eq.' + input, 'activo=eq.true']
+    });
+    if (!rows || rows.length === 0) {
+      errEl.textContent = 'Usuario no encontrado';
+      return;
+    }
+    var gestor = rows[0];
+
+    // Primer login sin contraseña
+    if (gestor.primer_login || !gestor.password_hash || gestor.password_hash === '') {
+      if (!pass) {
+        // Enter without password, force create password
+        await entrarComoGestor(gestor, true);
+        return;
       }
     }
 
-    state.plantasDisponibles = plantas;
-
-    if (plantas.length === 0 && !esSuperAdmin) {
-      errEl.textContent = 'No tienes plantas asignadas. Contacta al administrador.';
+    // Login normal
+    if (!pass) { errEl.textContent = 'Introduce tu contraseña'; return; }
+    if (gestor.password_hash !== pass) {
+      errEl.textContent = 'Contraseña incorrecta';
       return;
     }
+    await entrarComoGestor(gestor, false);
 
-    if (plantas.length === 1 && !esSuperAdmin) {
-      // Single plant, normal gestor → enter directly
-      PLANTA_ID = plantas[0].id;
-      enterApp({ tipo: 'gestor', id: userId, nombre: nombre, email: email });
-    } else if (esSuperAdmin || plantas.length > 1) {
-      // Super admin always sees selector, or gestor with multiple plants
-      mostrarSelectorPlanta({ tipo: esSuperAdmin ? 'superadmin' : 'gestor', id: userId, nombre: nombre, email: email }, plantas);
-    }
-  } catch (e) {
+  } catch(e) {
     errEl.textContent = 'Error de conexión';
-    console.error('Login error:', e);
+    console.error('Gestor login error:', e);
+  }
+}
+
+async function entrarComoGestor(gestor, primerLogin) {
+  state.isSuperAdmin = false;
+
+  // Get assigned plants
+  var gp = await sbQuery('gestor_plantas', { select: 'planta_id', filters: ['gestor_id=eq.' + gestor.id] });
+  var plantaIds = (gp || []).map(function(g) { return g.planta_id; });
+  var todasPlantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] }) || [];
+  var plantas = todasPlantas.filter(function(p) { return plantaIds.includes(p.id); });
+
+  if (plantas.length === 0) {
+    document.getElementById('login-error').textContent = 'No tienes plantas asignadas. Contacta al administrador.';
+    return;
+  }
+
+  state.plantasDisponibles = plantas;
+  var user = { tipo: 'gestor', id: gestor.id, nombre: gestor.nombre, username: gestor.username, gestorData: gestor, primerLoginGestor: primerLogin };
+  state._pendingUser = user;
+
+  if (plantas.length === 1) {
+    PLANTA_ID = plantas[0].id;
+    enterApp(user);
+  } else {
+    mostrarSelectorPlanta(user, plantas);
   }
 }
 
@@ -1396,6 +1439,9 @@ function enterApp(user) {
       navigateTo(firstPage);
       if (user.primerLogin) {
         setTimeout(function() { modalCrearPassword(); }, 500);
+      }
+      if (user.primerLoginGestor) {
+        setTimeout(function() { modalCrearPasswordGestor(); }, 500);
       }
     });
   }
@@ -1579,8 +1625,6 @@ const NAV_EMPLEADO = [
 const NAV_SUPERADMIN = [
   { id: 'admin-plantas', label: 'Plantas', icon: 'grid' },
   { id: 'admin-gestores', label: 'Gestores', icon: 'users' },
-  { separator: 'Sistema' },
-  { id: 'admin-nuevo-ano', label: 'Nuevo Año', icon: 'calendar' },
 ];
 
 function getIcon(name) {
@@ -5472,13 +5516,14 @@ async function renderAdminGestores() {
   html += '<button class="btn btn-blue" onclick="modalNuevoGestorAdmin()">+ Crear gestor</button></div>';
 
   html += '<div class="card"><div style="overflow:auto"><table class="emp-table"><thead><tr>';
-  html += '<th>Nombre</th><th>Email</th><th>Plantas asignadas</th><th>Max. plantas</th><th>Estado</th><th></th>';
+  html += '<th>Nombre</th><th>Usuario</th><th>Email</th><th>Plantas asignadas</th><th>Max. plantas</th><th>Estado</th><th></th>';
   html += '</tr></thead><tbody>';
   gestores.forEach(function(g) {
     var gps = gestorPlantas.filter(function(gp) { return gp.gestor_id === g.id; });
     var plantaNames = gps.map(function(gp) { var p = plantas.find(function(pl) { return pl.id === gp.planta_id; }); return p ? p.nombre : '?'; });
     html += '<tr>';
     html += '<td style="font-weight:600">' + (g.nombre || '—') + '</td>';
+    html += '<td><code style="font-size:12px;background:var(--bg);padding:2px 6px;border-radius:4px">' + (g.username || '—') + '</code></td>';
     html += '<td style="font-size:12px">' + (g.email || '—') + '</td>';
     html += '<td><div style="display:flex;gap:4px;flex-wrap:wrap">';
     if (plantaNames.length === 0) html += '<span style="color:var(--text3)">Ninguna</span>';
@@ -5496,10 +5541,11 @@ async function renderAdminGestores() {
 }
 
 function modalNuevoGestorAdmin() {
-  var body = '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="ng-nombre"></div>';
-  body += '<div class="form-group"><label class="form-label">Email</label><input class="form-input" id="ng-email" type="email"></div>';
+  var body = '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="ng-nombre" placeholder="Ej: Juan García"></div>';
+  body += '<div class="form-group"><label class="form-label">Usuario <span style="color:var(--text3);font-weight:400">(para el login)</span></label><input class="form-input" id="ng-username" placeholder="Ej: j.garcia"></div>';
+  body += '<div class="form-group"><label class="form-label">Email <span style="color:var(--text3);font-weight:400">(opcional, para contacto)</span></label><input class="form-input" id="ng-email" type="email" placeholder="Opcional"></div>';
   body += '<div class="form-group"><label class="form-label">Máximo de plantas</label><input class="form-input" id="ng-max" type="number" value="1" min="1"></div>';
-  body += '<div class="alert alert-info" style="margin-top:8px"><span>El gestor debe estar registrado como usuario en Supabase Auth (email + contraseña). Aquí solo se crea su perfil de gestor.</span></div>';
+  body += '<div class="alert alert-info" style="margin-top:8px"><span>El gestor entrará sin contraseña la primera vez y creará la suya propia.</span></div>';
   openModal('Crear gestor', body,
     '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
     '<button class="btn btn-blue" onclick="crearGestorAdmin()">Crear</button>');
@@ -5507,12 +5553,21 @@ function modalNuevoGestorAdmin() {
 
 async function crearGestorAdmin() {
   var nombre = document.getElementById('ng-nombre').value.trim();
-  var email = document.getElementById('ng-email').value.trim();
-  if (!nombre || !email) { showToast('Campos obligatorios', 'error'); return; }
+  var username = document.getElementById('ng-username').value.trim();
+  if (!nombre || !username) { showToast('Nombre y usuario son obligatorios', 'error'); return; }
   try {
-    await sbInsert('gestores', { nombre: nombre, email: email, max_plantas: parseInt(document.getElementById('ng-max').value) || 1, activo: true, rol: 'gestor' });
-    closeModal(); showToast('Gestor creado', 'success'); renderAdminGestores();
-  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+    await sbInsert('gestores', {
+      nombre: nombre,
+      username: username,
+      email: document.getElementById('ng-email').value.trim() || null,
+      max_plantas: parseInt(document.getElementById('ng-max').value) || 1,
+      activo: true,
+      rol: 'gestor',
+      primer_login: true,
+      password_hash: ''
+    });
+    closeModal(); showToast('Gestor creado. Usuario: ' + username, 'success'); renderAdminGestores();
+  } catch(e) { showToast('Error: ' + (e.message || 'Usuario ya existe'), 'error'); }
 }
 
 function modalEditarGestorAdmin(gestorId) {
@@ -5520,12 +5575,14 @@ function modalEditarGestorAdmin(gestorId) {
     if (!rows || rows.length === 0) return;
     var g = rows[0];
     var body = '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="eg-nombre" value="' + (g.nombre || '') + '"></div>';
+    body += '<div class="form-group"><label class="form-label">Usuario</label><input class="form-input" id="eg-username" value="' + (g.username || '') + '"></div>';
     body += '<div class="form-group"><label class="form-label">Email</label><input class="form-input" id="eg-email" value="' + (g.email || '') + '"></div>';
     body += '<div class="form-group"><label class="form-label">Máximo de plantas</label><input class="form-input" id="eg-max" type="number" value="' + (g.max_plantas || 1) + '" min="1"></div>';
     body += '<div class="form-group"><label class="form-label">Estado</label><select class="form-input" id="eg-activo">';
     body += '<option value="true"' + (g.activo !== false ? ' selected' : '') + '>Activo</option>';
     body += '<option value="false"' + (g.activo === false ? ' selected' : '') + '>Inactivo (bloqueado)</option></select></div>';
     openModal('Editar gestor', body,
+      '<button class="btn btn-outline" style="color:var(--warning)" onclick="resetearPassGestorAdmin(\'' + gestorId + '\')">Resetear contraseña</button><div style="flex:1"></div>' +
       '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
       '<button class="btn btn-blue" onclick="guardarGestorAdmin(\'' + gestorId + '\')">Guardar</button>');
   });
@@ -5535,11 +5592,21 @@ async function guardarGestorAdmin(gestorId) {
   try {
     await sbUpdate('gestores', gestorId, {
       nombre: document.getElementById('eg-nombre').value.trim(),
-      email: document.getElementById('eg-email').value.trim(),
+      username: document.getElementById('eg-username').value.trim(),
+      email: document.getElementById('eg-email').value.trim() || null,
       max_plantas: parseInt(document.getElementById('eg-max').value) || 1,
       activo: document.getElementById('eg-activo').value === 'true'
     });
     closeModal(); showToast('Gestor actualizado', 'success'); renderAdminGestores();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function resetearPassGestorAdmin(gestorId) {
+  if (!confirm('¿Resetear contraseña? El gestor deberá crear una nueva en su próximo acceso.')) return;
+  try {
+    await sbUpdate('gestores', gestorId, { password_hash: '', primer_login: true });
+    closeModal();
+    showToast('Contraseña reseteada', 'success');
   } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
 
@@ -6034,6 +6101,40 @@ async function guardarNuevaPassword() {
     await sbUpdate('empleados', state.user.id, { password_hash: p1, primer_login: false });
     state.user.primerLogin = false;
     if (state.user.empleadoData) state.user.empleadoData.password_hash = p1;
+    closeModal();
+    showToast('Contraseña creada correctamente', 'success');
+  } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalCrearPasswordGestor() {
+  var body = '<div class="alert alert-info" style="margin-bottom:16px"><span>Es tu primer acceso. Crea una contraseña para proteger tu cuenta.</span></div>';
+  body += '<div class="form-group"><label class="form-label">Nueva contraseña</label>';
+  body += '<div class="pass-wrap"><input type="password" class="form-input" id="cpg-pass1" placeholder="Mínimo 4 caracteres">';
+  body += '<button type="button" class="pass-toggle" onclick="togglePass(\'cpg-pass1\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  body += '<div class="form-group"><label class="form-label">Repetir contraseña</label>';
+  body += '<div class="pass-wrap"><input type="password" class="form-input" id="cpg-pass2" placeholder="Repite la contraseña">';
+  body += '<button type="button" class="pass-toggle" onclick="togglePass(\'cpg-pass2\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  var existing = document.getElementById('global-modal');
+  if (existing) existing.remove();
+  var m = document.createElement('div');
+  m.className = 'modal-overlay';
+  m.id = 'global-modal';
+  m.innerHTML = '<div class="modal" onclick="event.stopPropagation()">' +
+    '<div class="modal-header"><span class="modal-title">Crear contraseña</span></div>' +
+    '<div class="modal-body">' + body + '</div>' +
+    '<div class="modal-footer"><button class="btn btn-blue" onclick="guardarNuevaPasswordGestor()">Guardar contraseña</button></div></div>';
+  document.body.appendChild(m);
+}
+
+async function guardarNuevaPasswordGestor() {
+  var p1 = document.getElementById('cpg-pass1').value;
+  var p2 = document.getElementById('cpg-pass2').value;
+  if (!p1 || p1.length < 4) { showToast('Mínimo 4 caracteres', 'error'); return; }
+  if (p1 !== p2) { showToast('Las contraseñas no coinciden', 'error'); return; }
+  try {
+    await sbUpdate('gestores', state.user.id, { password_hash: p1, primer_login: false });
+    state.user.primerLoginGestor = false;
+    if (state.user.gestorData) state.user.gestorData.password_hash = p1;
     closeModal();
     showToast('Contraseña creada correctamente', 'success');
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
