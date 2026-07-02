@@ -2876,7 +2876,7 @@ async function renderEmpleadoDetalle(empId) {
 
   // === TABS ===
   html += '<div class="config-tabs" style="margin-bottom:20px">';
-  [['datos','Datos personales'],['ausencias','Ausencias (' + ausencias.length + ')'],['vacaciones','Vacaciones (' + vacaciones.length + ')'],['intercambios','Intercambios (' + intercambios.length + ')'],['dias-libres','Días libres (' + diasLibres.length + ')']].forEach(function(t) {
+  [['datos','Datos personales'],['ausencias','Ausencias (' + ausencias.length + ')'],['vacaciones','Vacaciones (' + vacaciones.length + ')'],['intercambios','Intercambios (' + intercambios.length + ')'],['dias-libres','Días libres (' + diasLibres.length + ')'],['contrasena','Contraseña']].forEach(function(t) {
     html += '<button class="config-tab' + (tab === t[0] ? ' active' : '') + '" onclick="state.fichaTab=\'' + t[0] + '\';renderEmpleadoDetalle(\'' + empId + '\')">' + t[1] + '</button>';
   });
   html += '</div>';
@@ -2891,16 +2891,6 @@ async function renderEmpleadoDetalle(empId) {
       html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">' + r[0] + '</span><span>' + r[1] + '</span></div>';
     });
     if (emp.notas) html += '<div style="padding:8px 0"><span style="color:var(--text2)">Notas</span><div style="margin-top:4px;font-size:12px;color:var(--text)">' + emp.notas + '</div></div>';
-    html += '</div></div></div>';
-
-    // Contraseña
-    html += '<div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title">Contraseña de acceso</span></div><div class="card-body">';
-    html += '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">';
-    html += '<div class="form-group" style="margin:0;flex:1;min-width:200px"><label class="form-label">Nueva contraseña</label>';
-    html += '<div class="pass-wrap"><input type="password" class="form-input" id="ficha-pass">';
-    html += '<button type="button" class="pass-toggle" onclick="togglePass(\'ficha-pass\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
-    html += '<button class="btn btn-blue" onclick="guardarPassFicha(\'' + empId + '\')">Guardar contraseña</button>';
-    html += '<button class="btn btn-outline" style="color:var(--warning)" onclick="resetearPassFicha(\'' + empId + '\')" title="El empleado deberá crear una nueva contraseña en su próximo acceso">Resetear (forzar cambio)</button>';
     html += '</div></div></div>';
 
     // Calendario mini del mes actual
@@ -3014,6 +3004,24 @@ async function renderEmpleadoDetalle(empId) {
       html += '<td><button class="btn btn-sm btn-ghost" onclick="modalEditarDiaLibre(\'' + dl.id + '\')">✎</button></td></tr>';
     });
     html += '</tbody></table></div></div>';
+  }
+
+  if (tab === 'contrasena') {
+    html += '<div class="card" style="max-width:480px"><div class="card-header"><span class="card-title">Contraseña de acceso</span></div><div class="card-body">';
+    html += '<div style="font-size:13px;color:var(--text2);margin-bottom:16px">Gestiona la contraseña de acceso de <strong>' + emp.nombre + ' ' + emp.apellidos + '</strong>.</div>';
+    html += '<div class="form-group"><label class="form-label">Nueva contraseña</label>';
+    html += '<div class="pass-wrap"><input type="password" class="form-input" id="ficha-pass" placeholder="Mínimo 4 caracteres">';
+    html += '<button type="button" class="pass-toggle" onclick="togglePass(\'ficha-pass\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+    html += '<div class="form-group"><label class="form-label">Repetir contraseña</label>';
+    html += '<div class="pass-wrap"><input type="password" class="form-input" id="ficha-pass2" placeholder="Repite la contraseña">';
+    html += '<button type="button" class="pass-toggle" onclick="togglePass(\'ficha-pass2\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+    html += '<div style="display:flex;gap:8px;margin-top:8px">';
+    html += '<button class="btn btn-blue" onclick="guardarPassFicha(\'' + empId + '\')">Guardar contraseña</button>';
+    html += '<button class="btn btn-outline" style="color:var(--warning)" onclick="resetearPassFicha(\'' + empId + '\')">Resetear (forzar cambio en próximo acceso)</button>';
+    html += '</div>';
+    html += '<div style="margin-top:16px;padding:12px;background:var(--bg);border-radius:8px;font-size:12px;color:var(--text2)">';
+    html += '<strong>Resetear</strong>: elimina la contraseña actual. El empleado verá un modal obligatorio para crear una nueva en su próximo acceso.';
+    html += '</div></div></div>';
   }
 
   document.getElementById('page-empleado-detalle').innerHTML = html;
@@ -5846,10 +5854,14 @@ async function saveConfig(clave, valor) {
 
 async function guardarPassFicha(empId) {
   var pass = document.getElementById('ficha-pass').value.trim();
+  var pass2El = document.getElementById('ficha-pass2');
+  var pass2 = pass2El ? pass2El.value.trim() : pass;
   if (!pass || pass.length < 4) { showToast('Mínimo 4 caracteres', 'error'); return; }
+  if (pass2El && pass !== pass2) { showToast('Las contraseñas no coinciden', 'error'); return; }
   try {
     await sbUpdate('empleados', empId, { password_hash: pass, primer_login: false });
     document.getElementById('ficha-pass').value = '';
+    if (pass2El) pass2El.value = '';
     showToast('Contraseña actualizada', 'success');
   } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
