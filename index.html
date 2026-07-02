@@ -417,6 +417,25 @@ a { color: inherit; text-decoration: none; }
 }
 
 .cal-table-wrap { overflow: auto; max-height: 80vh; position: relative; -webkit-overflow-scrolling: touch; }
+
+/* ===================== CALENDAR TOOLTIP ===================== */
+#cal-tooltip {
+  position: fixed;
+  z-index: 9999;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  padding: 10px 14px;
+  min-width: 180px;
+  max-width: 240px;
+  pointer-events: none;
+  display: none;
+  font-size: 12px;
+}
+#cal-tooltip .tt-name { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+#cal-tooltip .tt-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; color: var(--text2); }
+#cal-tooltip .tt-tag { font-size: 10px; font-weight: 600; background: var(--bg); padding: 1px 6px; border-radius: 4px; }
 .cal-table {
   border-collapse: separate;
   border-spacing: 0;
@@ -938,6 +957,9 @@ td.col-descubierto { background: #FEF2F2 !important; }
     <p class="login-error" id="login-error"></p>
   </div>
 </div>
+
+<!-- CALENDAR TOOLTIP -->
+<div id="cal-tooltip"></div>
 
 <!-- ===================== PLANTA SELECTOR ===================== -->
 <div id="planta-selector" style="display:none;justify-content:center;align-items:center;min-height:100vh;background:var(--bg)"></div>
@@ -2099,7 +2121,11 @@ function renderCalendarioInner() {
         let tdStyle = '';
         if (isToday) tdStyle = 'background:#EFF6FF;';
         else if (desc) tdStyle = 'background:#FEF8F8;';
-        html += '<td style="' + tdStyle + '"' + (state.user.tipo === 'gestor' || state.user.tipo === 'superadmin' ? ' onclick="editarTurno(\'' + emp.id + '\',\'' + d.ds + '\',\'' + t + '\')"' : '') + '>';
+        const clickable = state.user.tipo === 'gestor' || state.user.tipo === 'superadmin';
+        html += '<td style="' + tdStyle + (clickable ? 'cursor:pointer;' : '') + '"';
+        if (clickable) html += ' onclick="editarTurno(\'' + emp.id + '\',\'' + d.ds + '\',\'' + t + '\')"';
+        html += ' onmouseenter="showCalTooltip(event,\'' + emp.id + '\',\'' + d.ds + '\',\'' + (t || '') + '\')"';
+        html += ' onmouseleave="hideCalTooltip()">';
         html += '<span class="turno-cell ' + (t || 'empty') + '">' + (t || '·') + '</span></td>';
       });
       html += '</tr>';
@@ -5730,6 +5756,97 @@ function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('mobile-overlay').classList.toggle('show');
 }
+
+// =====================================================================
+// CALENDAR TOOLTIP
+// =====================================================================
+function showCalTooltip(event, empId, fecha, turno) {
+  var emp = state.empleados.find(function(e) { return e.id === empId; });
+  if (!emp) return;
+  var letra = getLetra(emp.letra_id);
+  var turnoEditado = state.turnosEditados.find(function(t) { return t.empleado_id === empId && t.fecha === fecha; });
+  var areaId = (turnoEditado && turnoEditado.area_id) ? turnoEditado.area_id : emp.area_principal_id;
+  var area = getArea(areaId);
+  var areaPrincipal = getArea(emp.area_principal_id);
+  var esIntercambio = turnoEditado && turnoEditado.area_id && turnoEditado.area_id !== emp.area_principal_id;
+  var horarios = { M:'06:00–14:00', T:'14:00–22:00', N:'22:00–06:00', R:'06:00–14:00', S:'06:00–18:00', L:'18:00–06:00', V:'Vacaciones', B:'Baja', D:'Descanso' };
+
+  var html = '<div class="tt-name">' + emp.nombre + ' ' + emp.apellidos + '</div>';
+
+  // Letra badge
+  html += '<div class="tt-row">';
+  html += '<span style="width:8px;height:8px;border-radius:50%;background:' + (letra ? letra.color : '#ccc') + ';flex-shrink:0"></span>';
+  html += '<span>Letra <strong>' + (letra ? letra.nombre : '?') + '</strong></span></div>';
+
+  // Turno
+  if (turno && turno !== 'empty') {
+    html += '<div class="tt-row"><span class="turno-badge ' + turno + '" style="width:22px;height:22px;font-size:10px">' + turno + '</span>';
+    html += '<span>' + turnoLabel(turno) + (horarios[turno] && !['V','B','D'].includes(turno) ? ' · ' + horarios[turno] : '') + '</span></div>';
+  } else {
+    html += '<div class="tt-row" style="color:var(--text3)">Sin turno asignado</div>';
+  }
+
+  // Área
+  if (!['D','V','B'].includes(turno)) {
+    html += '<div class="tt-row"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+    html += '<span>' + (area ? area.nombre : '—');
+    if (esIntercambio) html += ' <span style="color:var(--warning);font-weight:600">↔</span>';
+    html += '</span></div>';
+
+    // Si está cubriendo un área diferente, mostrar la principal también
+    if (esIntercambio && areaPrincipal) {
+      html += '<div class="tt-row" style="color:var(--text3)"><span style="padding-left:14px">Principal: ' + areaPrincipal.nombre + '</span></div>';
+    }
+  }
+
+  // Nota
+  if (turnoEditado && turnoEditado.notas) {
+    html += '<div class="tt-row" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>';
+    html += '<span style="color:var(--text3)">' + turnoEditado.notas + '</span></div>';
+  }
+
+  // Festivo
+  var festivo = state.festivos.find(function(f) { return f.fecha === fecha; });
+  if (festivo) {
+    html += '<div class="tt-row" style="color:#D97706;margin-top:2px">🎉 ' + festivo.nombre + '</div>';
+  }
+
+  var tooltip = document.getElementById('cal-tooltip');
+  tooltip.innerHTML = html;
+  tooltip.style.display = 'block';
+  posicionarTooltip(event, tooltip);
+}
+
+function posicionarTooltip(event, tooltip) {
+  var x = event.clientX;
+  var y = event.clientY;
+  var tw = tooltip.offsetWidth || 220;
+  var th = tooltip.offsetHeight || 120;
+  var vw = window.innerWidth;
+  var vh = window.innerHeight;
+
+  // Horizontal: si no cabe a la derecha, poner a la izquierda
+  var left = x + 12;
+  if (left + tw > vw - 8) left = x - tw - 12;
+
+  // Vertical: si no cabe abajo, poner arriba
+  var top = y + 12;
+  if (top + th > vh - 8) top = y - th - 12;
+
+  tooltip.style.left = left + 'px';
+  tooltip.style.top = top + 'px';
+}
+
+function hideCalTooltip() {
+  document.getElementById('cal-tooltip').style.display = 'none';
+}
+
+document.addEventListener('mousemove', function(e) {
+  var tooltip = document.getElementById('cal-tooltip');
+  if (tooltip && tooltip.style.display === 'block') {
+    posicionarTooltip(e, tooltip);
+  }
+});
 
 function togglePass(inputId, btn) {
   var inp = document.getElementById(inputId);
