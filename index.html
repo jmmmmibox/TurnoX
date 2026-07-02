@@ -4860,40 +4860,114 @@ function removeTipoCobertura(i) { state.tiposCobertura.splice(i, 1); closeModal(
 function editarTurno(empId, fecha, turnoActual) {
   if (state.user.tipo !== 'gestor' && state.user.tipo !== 'superadmin') return;
   const emp = state.empleados.find(e => e.id === empId);
-  let body = '<p style="margin-bottom:12px">Turno actual: <span class="turno-badge ' + turnoActual + '">' + turnoActual + '</span> ' + turnoLabel(turnoActual) + '</p>';
-  body += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-  ['M','T','N','D','R','V','B','S','L'].forEach(t => {
-    body += '<button class="turno-cell ' + t + '" onclick="guardarTurnoEdit(\'' + empId + '\',\'' + fecha + '\',\'' + t + '\')" style="width:44px;height:44px;font-size:14px;cursor:pointer">' + t + '</button>';
+  if (!emp) return;
+
+  // Áreas disponibles: principal + polivalencias
+  const empPolivs = state.polivalencias.filter(function(p) { return p.empleado_id === empId; });
+  const areasDisponibles = [emp.area_principal_id].concat(empPolivs.map(function(p) { return p.area_id; }));
+
+  // Turno actual y área actual
+  const turnoEditado = state.turnosEditados.find(function(t) { return t.empleado_id === empId && t.fecha === fecha; });
+  const areaActualId = (turnoEditado && turnoEditado.area_id) ? turnoEditado.area_id : emp.area_principal_id;
+
+  let body = '<div style="margin-bottom:12px;display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:var(--text2)">Turno actual:</span><span class="turno-badge ' + (turnoActual || 'D') + '">' + (turnoActual || 'D') + '</span><span style="font-size:12px;color:var(--text2)">' + turnoLabel(turnoActual) + '</span></div>';
+
+  // Tipo de turno
+  body += '<div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Tipo de turno</div>';
+  body += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">';
+  ['M','T','N','D','R','V','B','S','L'].forEach(function(t) {
+    body += '<button class="turno-cell ' + t + '" id="sel-turno-' + t + '" onclick="seleccionarTipoTurno(\'' + t + '\')" style="width:44px;height:44px;font-size:14px;cursor:pointer;' + (turnoActual === t ? 'outline:3px solid var(--primary);outline-offset:2px;' : '') + '">' + t + '</button>';
   });
   body += '</div>';
-  openModal('Editar turno — ' + (emp ? emp.nombre : '') + ' · ' + formatDateES(fecha), body);
+
+  // Área a cubrir (solo si tiene polivalencias)
+  if (areasDisponibles.length > 1) {
+    body += '<div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;margin-bottom:8px">Área que cubrirá</div>';
+    body += '<select class="form-input" id="sel-area-turno" style="margin-bottom:4px">';
+    areasDisponibles.forEach(function(aId) {
+      var a = getArea(aId);
+      if (!a) return;
+      var esPrincipal = aId === emp.area_principal_id;
+      body += '<option value="' + aId + '"' + (aId === areaActualId ? ' selected' : '') + '>' + a.nombre + (esPrincipal ? ' (principal)' : ' (polivalencia)') + '</option>';
+    });
+    body += '</select>';
+    body += '<div style="font-size:11px;color:var(--text3)">Por defecto cubre su área principal</div>';
+  } else {
+    // Solo área principal, campo oculto
+    body += '<input type="hidden" id="sel-area-turno" value="' + emp.area_principal_id + '">';
+  }
+
+  // Input oculto para el tipo seleccionado
+  body += '<input type="hidden" id="sel-tipo-turno" value="' + (turnoActual || '') + '">';
+
+  // Notas
+  body += '<div class="form-group" style="margin-top:12px"><label class="form-label">Nota (opcional)</label>';
+  body += '<input class="form-input" id="sel-nota-turno" placeholder="Motivo del cambio..." value="' + ((turnoEditado && turnoEditado.notas) ? turnoEditado.notas : '') + '"></div>';
+
+  const footer = '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-ghost" style="color:var(--danger)" onclick="restaurarTurno(\'' + empId + '\',\'' + fecha + '\')">Restaurar</button>' +
+    '<button class="btn btn-blue" onclick="guardarTurnoEdit(\'' + empId + '\',\'' + fecha + '\')">Guardar</button>';
+
+  openModal('Editar turno — ' + emp.nombre + ' ' + emp.apellidos + ' · ' + formatDateES(fecha), body, footer);
 }
 
-async function guardarTurnoEdit(empId, fecha, nuevoTurno) {
+function seleccionarTipoTurno(t) {
+  document.getElementById('sel-tipo-turno').value = t;
+  ['M','T','N','D','R','V','B','S','L'].forEach(function(x) {
+    var btn = document.getElementById('sel-turno-' + x);
+    if (btn) btn.style.outline = (x === t) ? '3px solid var(--primary)' : 'none';
+  });
+}
+
+async function guardarTurnoEdit(empId, fecha) {
+  var nuevoTurno = document.getElementById('sel-tipo-turno').value;
+  var areaEl = document.getElementById('sel-area-turno');
+  var areaId = areaEl ? areaEl.value : null;
+  var notas = document.getElementById('sel-nota-turno').value.trim();
+  if (!nuevoTurno) { showToast('Selecciona un tipo de turno', 'error'); return; }
   try {
+    const emp = state.empleados.find(function(e) { return e.id === empId; });
+    // Only store area_id if different from principal (or explicitly chosen)
+    var storeAreaId = areaId || (emp ? emp.area_principal_id : null);
     const existentes = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + fecha] });
     if (existentes && existentes.length > 0) {
-      await sbUpdate('turnos', existentes[0].id, { tipo: nuevoTurno, editado_manualmente: true });
+      await sbUpdate('turnos', existentes[0].id, { tipo: nuevoTurno, area_id: storeAreaId, editado_manualmente: true, notas: notas || null });
     } else {
-      await sbInsert('turnos', { empleado_id: empId, fecha: fecha, tipo: nuevoTurno, editado_manualmente: true });
+      await sbInsert('turnos', { empleado_id: empId, fecha: fecha, tipo: nuevoTurno, area_id: storeAreaId, editado_manualmente: true, notas: notas || null });
     }
     // Actualizar state local
-    const idx = state.turnosEditados.findIndex(t => t.empleado_id === empId && t.fecha === fecha);
-    if (idx >= 0) { state.turnosEditados[idx].tipo = nuevoTurno; }
-    else { state.turnosEditados.push({ empleado_id: empId, fecha: fecha, tipo: nuevoTurno, editado_manualmente: true }); }
+    const idx = state.turnosEditados.findIndex(function(t) { return t.empleado_id === empId && t.fecha === fecha; });
+    if (idx >= 0) { state.turnosEditados[idx].tipo = nuevoTurno; state.turnosEditados[idx].area_id = storeAreaId; }
+    else { state.turnosEditados.push({ empleado_id: empId, fecha: fecha, tipo: nuevoTurno, area_id: storeAreaId, editado_manualmente: true }); }
     // Notificar al empleado
     try {
+      var areaNombre = getArea(storeAreaId);
       await sbInsert('notificaciones', {
         destinatario_empleado_id: empId,
         tipo: 'turno',
         titulo: 'Cambio de turno',
-        mensaje: 'Tu turno del ' + formatDateES(fecha) + ' ha sido cambiado a ' + nuevoTurno + ' (' + turnoLabel(nuevoTurno) + ')',
+        mensaje: 'Tu turno del ' + formatDateES(fecha) + ' ha sido cambiado a ' + nuevoTurno + ' (' + turnoLabel(nuevoTurno) + ')' + (areaNombre ? ' · Área: ' + areaNombre.nombre : ''),
       });
     } catch(en) {}
     closeModal();
     showToast('Turno actualizado', 'success');
     renderCalendario();
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function restaurarTurno(empId, fecha) {
+  if (!confirm('¿Restaurar el turno calculado para este día?')) return;
+  try {
+    const ex = await sbQuery('turnos', { select: '*', filters: ['empleado_id=eq.' + empId, 'fecha=eq.' + fecha, 'editado_manualmente=eq.true'] });
+    if (ex && ex.length > 0) {
+      await sbDelete('turnos', ex[0].id);
+      const idx = state.turnosEditados.findIndex(function(t) { return t.empleado_id === empId && t.fecha === fecha; });
+      if (idx >= 0) state.turnosEditados.splice(idx, 1);
+    }
+    closeModal();
+    showToast('Turno restaurado', 'success');
+    renderCalendario();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 // =====================================================================
