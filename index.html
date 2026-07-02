@@ -1024,6 +1024,7 @@ td.col-descubierto { background: #FEF2F2 !important; }
       <div class="page active" id="page-dashboard"></div>
       <div class="page" id="page-calendario"></div>
       <div class="page" id="page-empleados"></div>
+      <div class="page" id="page-empleado-detalle"></div>
       <div class="page" id="page-vacaciones"></div>
       <div class="page" id="page-intercambios"></div>
       <div class="page" id="page-ausencias"></div>
@@ -1618,7 +1619,8 @@ function navigateTo(page) {
 
   const titles = {
     'dashboard': 'Dashboard', 'calendario': 'Calendario de Turnos',
-    'empleados': 'Empleados', 'vacaciones': 'Vacaciones',
+    'empleados': 'Empleados',
+    'empleado-detalle': '', 'vacaciones': 'Vacaciones',
     'intercambios': 'Intercambios', 'ausencias': 'Ausencias y Coberturas',
     'dias-libres': 'Solicitudes de Días Libres',
     'informes': 'Informes', 'configuracion': 'Configuración',
@@ -1639,6 +1641,7 @@ function renderPage(page) {
     'dashboard': renderDashboard,
     'calendario': renderCalendario,
     'empleados': renderEmpleados,
+    'empleado-detalle': function() { renderEmpleadoDetalle(state.fichaEmpId); },
     'vacaciones': renderVacaciones,
     'intercambios': renderIntercambios,
     'ausencias': renderAusencias,
@@ -2312,7 +2315,7 @@ function renderEmpRows(emps) {
     html += '</div></td>';
     html += '<td><code style="font-size:12px;background:var(--bg);padding:2px 6px;border-radius:4px">' + emp.username + '</code></td>';
     html += '<td><span class="turno-badge ' + (t || 'D') + '">' + (t || 'D') + '</span></td>';
-    html += '<td><div style="display:flex;gap:4px"><button class="btn btn-sm btn-outline" onclick="modalFichaEmpleado(\'' + emp.id + '\')">Ver ficha</button>';
+    html += '<td><div style="display:flex;gap:4px"><button class="btn btn-sm btn-outline" onclick="abrirFichaEmpleado(\'' + emp.id + '\')">Ver ficha</button>';
     html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarEmpleado(\'' + emp.id + '\')">✎</button></div></td></tr>';
   });
   return html;
@@ -2782,10 +2785,211 @@ function modalConfigConceptosDL() {
 function addConceptoDL() { var v = document.getElementById('cfg-nuevo-concepto').value.trim(); if (!v) return; state.conceptosDiasLibres.push(v); closeModal(); modalConfigConceptosDL(); }
 function removeConceptoDL(i) { state.conceptosDiasLibres.splice(i, 1); closeModal(); modalConfigConceptosDL(); }
 
+function abrirFichaEmpleado(empId) {
+  state.fichaEmpId = empId;
+  state.fichaTab = 'datos';
+  navigateTo('empleado-detalle');
+}
+
 // =====================================================================
-// FICHA EMPLEADO — Historial completo
+// FICHA EMPLEADO — Página completa
 // =====================================================================
-async function modalFichaEmpleado(empId) {
+async function renderEmpleadoDetalle(empId) {
+  if (!empId) { navigateTo('empleados'); return; }
+  var emp = state.empleados.find(function(e) { return e.id === empId; });
+  if (!emp) { navigateTo('empleados'); return; }
+
+  var letra = getLetra(emp.letra_id);
+  var area = getArea(emp.area_principal_id);
+  var polivs = state.polivalencias.filter(function(p) { return p.empleado_id === empId; }).map(function(p) { var a2 = getArea(p.area_id); return a2 ? a2.nombre : ''; }).filter(Boolean);
+  var tab = state.fichaTab || 'datos';
+
+  // Load data
+  var ausencias = [], vacaciones = [], intercambios = [], diasLibres = [], rondas = [];
+  try { ausencias = await sbQuery('ausencias', { select: '*', filters: ['empleado_id=eq.' + empId], order: 'fecha_inicio.desc' }); } catch(e) {}
+  try { vacaciones = await sbQuery('vacaciones_solicitudes', { select: '*', filters: ['empleado_id=eq.' + empId], order: 'created_at.desc' }); } catch(e) {}
+  try { rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'numero_ronda.asc' }); } catch(e) {}
+  try {
+    var allInt = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 100 });
+    intercambios = (allInt || []).filter(function(ic) { return ic.solicitante_id === empId || ic.receptor_id === empId; });
+  } catch(e) {}
+  try { diasLibres = await sbQuery('solicitudes_dias_libres', { select: '*', filters: ['empleado_id=eq.' + empId], order: 'created_at.desc' }); } catch(e) {}
+
+  var hoy = todayStr();
+  var turnoHoy = calcTurno(emp, hoy);
+
+  var html = '';
+
+  // === HEADER ===
+  html += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;padding-bottom:20px;border-bottom:2px solid var(--border)">';
+  html += '<button class="btn btn-outline" onclick="navigateTo(\'empleados\')">← Empleados</button>';
+  html += '<div class="emp-avatar" style="background:' + (letra ? letra.color : '#64748B') + ';width:56px;height:56px;font-size:20px;flex-shrink:0">' + (emp.nombre[0] || '') + (emp.apellidos[0] || '') + '</div>';
+  html += '<div style="flex:1"><div style="font-size:20px;font-weight:800">' + emp.nombre + ' ' + emp.apellidos + '</div>';
+  html += '<div style="font-size:13px;color:var(--text2);margin-top:2px">';
+  html += 'Letra <span style="color:' + (letra ? letra.color : '#999') + ';font-weight:700">' + (letra ? letra.nombre : '?') + '</span>';
+  html += ' · ' + (area ? area.nombre : '—');
+  if (polivs.length > 0) html += ' · <span style="color:var(--primary-light)">' + polivs.join(', ') + '</span>';
+  html += '</div></div>';
+  html += '<div style="display:flex;gap:8px">';
+  html += '<span class="turno-badge ' + (turnoHoy || 'D') + '" style="width:32px;height:32px;font-size:14px" title="Turno hoy">' + (turnoHoy || 'D') + '</span>';
+  html += '<button class="btn btn-blue" onclick="modalEditarEmpleado(\'' + empId + '\')">✎ Editar datos</button>';
+  html += '</div></div>';
+
+  // === STATS RÁPIDAS ===
+  var diasVac = vacaciones.filter(function(v) { return v.estado !== 'rechazada'; }).reduce(function(s, v) { return s + (v.dias_solicitados || 0); }, 0);
+  var ausActivas = ausencias.filter(function(a) { return a.fecha_fin >= hoy; }).length;
+  html += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px">';
+  [
+    { label: 'Ausencias', val: ausencias.length, sub: ausActivas > 0 ? ausActivas + ' activas' : '', color: ausActivas > 0 ? '#EF4444' : 'var(--text)', bg: ausActivas > 0 ? '#FEF2F2' : 'white', tab: 'ausencias' },
+    { label: 'Días vacaciones', val: diasVac, sub: vacaciones.length + ' solicitudes', color: 'var(--text)', bg: 'white', tab: 'vacaciones' },
+    { label: 'Intercambios', val: intercambios.length, sub: '', color: 'var(--text)', bg: 'white', tab: 'intercambios' },
+    { label: 'Días libres', val: diasLibres.length, sub: diasLibres.filter(function(d) { return d.estado === 'pendiente'; }).length + ' pendientes', color: 'var(--text)', bg: 'white', tab: 'dias-libres' },
+    { label: 'Usuario', val: emp.username, sub: emp.activo !== false ? 'Activo' : 'Inactivo', color: 'var(--text)', bg: 'white', tab: 'datos' },
+  ].forEach(function(s) {
+    html += '<div style="background:' + s.bg + ';border:1px solid var(--border);border-radius:10px;padding:14px;cursor:pointer" onclick="state.fichaTab=\'' + s.tab + '\';renderEmpleadoDetalle(\'' + empId + '\')">';
+    html += '<div style="font-size:11px;color:var(--text2);margin-bottom:4px">' + s.label + '</div>';
+    html += '<div style="font-size:20px;font-weight:800;color:' + s.color + '">' + s.val + '</div>';
+    if (s.sub) html += '<div style="font-size:10px;color:var(--text3)">' + s.sub + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // === TABS ===
+  html += '<div class="config-tabs" style="margin-bottom:20px">';
+  [['datos','Datos personales'],['ausencias','Ausencias (' + ausencias.length + ')'],['vacaciones','Vacaciones (' + vacaciones.length + ')'],['intercambios','Intercambios (' + intercambios.length + ')'],['dias-libres','Días libres (' + diasLibres.length + ')']].forEach(function(t) {
+    html += '<button class="config-tab' + (tab === t[0] ? ' active' : '') + '" onclick="state.fichaTab=\'' + t[0] + '\';renderEmpleadoDetalle(\'' + empId + '\')">' + t[1] + '</button>';
+  });
+  html += '</div>';
+
+  // === TAB CONTENT ===
+
+  if (tab === 'datos') {
+    html += '<div class="grid-2">';
+    html += '<div class="card"><div class="card-header"><span class="card-title">Información personal</span></div><div class="card-body">';
+    html += '<div style="display:flex;flex-direction:column;gap:12px;font-size:13px">';
+    [['Nombre', emp.nombre + ' ' + emp.apellidos], ['Usuario', '<code>' + emp.username + '</code>'], ['Letra', '<span style="color:' + (letra ? letra.color : '#999') + ';font-weight:700">' + (letra ? letra.nombre : '?') + '</span>'], ['Área principal', area ? area.nombre : '—'], ['Polivalencias', polivs.length > 0 ? polivs.join(', ') : '—'], ['Teléfono', emp.telefono || '—'], ['Estado', emp.activo !== false ? '<span class="status-badge open">Activo</span>' : '<span class="status-badge closed">Inactivo</span>']].forEach(function(r) {
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">' + r[0] + '</span><span>' + r[1] + '</span></div>';
+    });
+    if (emp.notas) html += '<div style="padding:8px 0"><span style="color:var(--text2)">Notas</span><div style="margin-top:4px;font-size:12px;color:var(--text)">' + emp.notas + '</div></div>';
+    html += '</div></div></div>';
+
+    // Calendario mini del mes actual
+    html += '<div class="card"><div class="card-header"><span class="card-title">Turnos este mes</span></div><div class="card-body">';
+    var mes = new Date().getMonth();
+    var year = new Date().getFullYear();
+    var diasMes = new Date(year, mes + 1, 0).getDate();
+    var dayNames = ['L','M','X','J','V','S','D'];
+    var counts = { M:0, T:0, N:0, R:0, S:0, L:0, D:0, V:0, B:0 };
+    html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:12px">';
+    dayNames.forEach(function(d) { html += '<div style="text-align:center;font-size:9px;font-weight:700;color:var(--text3);padding:2px">' + d + '</div>'; });
+    var firstDay = new Date(year, mes, 1).getDay();
+    var offset = firstDay === 0 ? 6 : firstDay - 1;
+    for (var i = 0; i < offset; i++) html += '<div></div>';
+    for (var d2 = 1; d2 <= diasMes; d2++) {
+      var ds = year + '-' + String(mes + 1).padStart(2,'0') + '-' + String(d2).padStart(2,'0');
+      var t2 = calcTurno(emp, ds);
+      if (t2 && counts.hasOwnProperty(t2)) counts[t2]++;
+      var isT = ds === hoy;
+      html += '<div style="text-align:center;padding:2px;border-radius:4px;' + (isT ? 'outline:2px solid var(--primary-light);' : '') + '">';
+      if (t2 && t2 !== 'D') html += '<span class="turno-badge ' + t2 + '" style="width:20px;height:20px;font-size:9px">' + t2 + '</span>';
+      else html += '<span style="font-size:9px;color:var(--text3)">' + d2 + '</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+    // Resumen conteo
+    var diasTrab = counts.M + counts.T + counts.N + counts.R + counts.S + counts.L;
+    var horasTot = (counts.M + counts.T + counts.N + counts.R) * 8 + (counts.S + counts.L) * 12;
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    [['M',counts.M,'#DBEAFE'],['T',counts.T,'#FEF3C7'],['N',counts.N,'#E0E7FF'],['R',counts.R,'#DCFCE7'],['S',counts.S,'#FFF7ED'],['L',counts.L,'#1E1B4B']].filter(function(x) { return x[1] > 0; }).forEach(function(x) {
+      html += '<span style="font-size:11px;background:' + x[2] + ';padding:2px 8px;border-radius:4px"><strong>' + x[1] + '</strong> ' + x[0] + '</span>';
+    });
+    html += '<span style="font-size:11px;font-weight:700">' + diasTrab + ' días · ' + horasTot + 'h</span></div>';
+    html += '</div></div>';
+    html += '</div>';
+  }
+
+  if (tab === 'ausencias') {
+    html += '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">';
+    html += '<button class="btn btn-blue" onclick="modalNuevaAusencia()">+ Registrar ausencia</button></div>';
+    html += '<div class="card"><div style="overflow:auto"><table class="emp-table"><thead><tr>';
+    html += '<th>Tipo</th><th>Desde</th><th>Hasta</th><th>Días</th><th>Cobertura</th><th>Motivo</th><th></th></tr></thead><tbody>';
+    if (ausencias.length === 0) html += '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text3)">Sin ausencias registradas</td></tr>';
+    ausencias.forEach(function(a) {
+      var dias = Math.round((new Date(a.fecha_fin + 'T12:00:00') - new Date(a.fecha_inicio + 'T12:00:00')) / 86400000) + 1;
+      var activa = a.fecha_inicio <= hoy && a.fecha_fin >= hoy;
+      html += '<tr' + (activa ? ' style="background:#FEF2F2"' : '') + '>';
+      html += '<td><span class="status-badge ' + (a.tipo.includes('Baja') ? 'closed' : 'pending') + '">' + a.tipo + '</span></td>';
+      html += '<td>' + formatDateES(a.fecha_inicio) + '</td><td>' + formatDateES(a.fecha_fin) + '</td>';
+      html += '<td style="font-weight:600">' + dias + '</td>';
+      html += '<td style="font-size:12px">' + (a.cobertura_tipo || '—') + '</td>';
+      html += '<td style="font-size:12px;color:var(--text2)">' + (a.motivo || '—') + '</td>';
+      html += '<td><button class="btn btn-sm btn-ghost" onclick="modalEditarAusencia(\'' + a.id + '\')">✎</button></td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  if (tab === 'vacaciones') {
+    html += '<div class="card"><div style="overflow:auto"><table class="emp-table"><thead><tr>';
+    html += '<th>Ronda</th><th>Desde</th><th>Hasta</th><th>Días</th><th>Estado</th><th>Notas gestor</th><th></th></tr></thead><tbody>';
+    if (vacaciones.length === 0) html += '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text3)">Sin solicitudes de vacaciones</td></tr>';
+    vacaciones.forEach(function(v) {
+      var ronda = rondas.find(function(r) { return r.id === v.ronda_id; });
+      html += '<tr>';
+      html += '<td style="font-weight:600">' + (ronda ? ronda.nombre : '—') + '</td>';
+      html += '<td>' + formatDateES(v.fecha_inicio) + '</td><td>' + formatDateES(v.fecha_fin) + '</td>';
+      html += '<td style="font-weight:600">' + v.dias_solicitados + '</td>';
+      html += '<td><span class="status-badge ' + v.estado + '">' + v.estado + '</span></td>';
+      html += '<td style="font-size:12px;color:var(--text2)">' + (v.notas_gestor || '—') + '</td>';
+      html += '<td><button class="btn btn-sm btn-ghost" onclick="modalEditarSolicitud(\'' + v.id + '\')">✎</button></td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  if (tab === 'intercambios') {
+    html += '<div class="card"><div style="overflow:auto"><table class="emp-table"><thead><tr>';
+    html += '<th>Fecha</th><th>Compañero</th><th>Mi turno</th><th>Su turno</th><th>Mi área</th><th>Su área</th><th>Estado</th><th></th></tr></thead><tbody>';
+    if (intercambios.length === 0) html += '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text3)">Sin intercambios</td></tr>';
+    intercambios.forEach(function(ic) {
+      var esSol = ic.solicitante_id === empId;
+      var otro = state.empleados.find(function(e) { return e.id === (esSol ? ic.receptor_id : ic.solicitante_id); });
+      var miTurno = esSol ? ic.turno_solicitante : ic.turno_receptor;
+      var suTurno = esSol ? ic.turno_receptor : ic.turno_solicitante;
+      var miArea = getArea(esSol ? ic.area_solicitante_id : ic.area_receptor_id);
+      var suArea = getArea(esSol ? ic.area_receptor_id : ic.area_solicitante_id);
+      html += '<tr>';
+      html += '<td style="font-weight:600">' + formatDateES(ic.fecha_solicitante) + '</td>';
+      html += '<td>' + (otro ? otro.nombre + ' ' + otro.apellidos : '?') + '</td>';
+      html += '<td><span class="turno-badge ' + (miTurno||'') + '">' + (miTurno||'?') + '</span></td>';
+      html += '<td><span class="turno-badge ' + (suTurno||'') + '">' + (suTurno||'?') + '</span></td>';
+      html += '<td style="font-size:12px">' + (miArea ? miArea.nombre : '—') + '</td>';
+      html += '<td style="font-size:12px">' + (suArea ? suArea.nombre : '—') + '</td>';
+      html += '<td><span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></td>';
+      html += '<td><button class="btn btn-sm btn-ghost" onclick="modalEditarIntercambio(\'' + ic.id + '\')">✎</button></td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  if (tab === 'dias-libres') {
+    html += '<div class="card"><div style="overflow:auto"><table class="emp-table"><thead><tr>';
+    html += '<th>Concepto</th><th>Desde</th><th>Hasta</th><th>Días</th><th>Estado</th><th>Notas gestor</th><th></th></tr></thead><tbody>';
+    if (diasLibres.length === 0) html += '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text3)">Sin solicitudes de días libres</td></tr>';
+    diasLibres.forEach(function(dl) {
+      html += '<tr>';
+      html += '<td style="font-weight:600">' + dl.concepto + '</td>';
+      html += '<td>' + formatDateES(dl.fecha_inicio) + '</td>';
+      html += '<td>' + formatDateES(dl.fecha_fin) + '</td>';
+      html += '<td style="font-weight:600">' + dl.dias + '</td>';
+      html += '<td><span class="status-badge ' + dl.estado + '">' + dl.estado + '</span></td>';
+      html += '<td style="font-size:12px;color:var(--text2)">' + (dl.notas_gestor || '—') + '</td>';
+      html += '<td><button class="btn btn-sm btn-ghost" onclick="modalEditarDiaLibre(\'' + dl.id + '\')">✎</button></td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  document.getElementById('page-empleado-detalle').innerHTML = html;
+  // Update header title
+  document.getElementById('page-title').textContent = emp.nombre + ' ' + emp.apellidos;
+}
   var emp = state.empleados.find(function(e) { return e.id === empId; });
   if (!emp) return;
   var letra = getLetra(emp.letra_id);
@@ -2794,160 +2998,6 @@ async function modalFichaEmpleado(empId) {
 
   if (!state.fichaTab) state.fichaTab = 'datos';
   var tab = state.fichaTab;
-
-  // Load data
-  var ausencias = [], vacaciones = [], intercambios = [], diasLibres = [];
-  try { ausencias = await sbQuery('ausencias', { select: '*', filters: ['empleado_id=eq.' + empId], order: 'fecha_inicio.desc' }); } catch(e) {}
-  try { vacaciones = await sbQuery('vacaciones_solicitudes', { select: '*', filters: ['empleado_id=eq.' + empId], order: 'created_at.desc' }); } catch(e) {}
-  try {
-    var allInt = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 50 });
-    intercambios = allInt.filter(function(ic) { return ic.solicitante_id === empId || ic.receptor_id === empId; });
-  } catch(e) {}
-  try { diasLibres = await sbQuery('solicitudes_dias_libres', { select: '*', filters: ['empleado_id=eq.' + empId], order: 'created_at.desc' }); } catch(e) {}
-
-  var body = '';
-
-  // Header
-  body += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding-bottom:16px;border-bottom:2px solid var(--border)">';
-  body += '<div class="emp-avatar" style="background:' + (letra ? letra.color : '#64748B') + ';width:48px;height:48px;font-size:16px">' + (emp.nombre[0] || '') + (emp.apellidos[0] || '') + '</div>';
-  body += '<div style="flex:1"><div style="font-size:16px;font-weight:700">' + emp.nombre + ' ' + emp.apellidos + '</div>';
-  body += '<div style="font-size:12px;color:var(--text2)">Letra <span style="color:' + (letra ? letra.color : '#999') + ';font-weight:700">' + (letra ? letra.nombre : '?') + '</span> · ' + (area ? area.nombre : '—');
-  if (polivs.length > 0) body += ' · Polivalencias: ' + polivs.join(', ');
-  body += '</div></div>';
-  body += '<button class="btn btn-sm btn-outline" onclick="closeModal();modalEditarEmpleado(\'' + empId + '\')">Editar datos</button></div>';
-
-  // Tabs
-  body += '<div class="config-tabs" style="margin-bottom:16px">';
-  [['datos','Datos'],['ausencias','Ausencias (' + ausencias.length + ')'],['vacaciones','Vacaciones (' + vacaciones.length + ')'],['intercambios','Intercambios (' + intercambios.length + ')'],['dias-libres','Días libres (' + diasLibres.length + ')']].forEach(function(t) {
-    body += '<button class="config-tab' + (tab === t[0] ? ' active' : '') + '" onclick="state.fichaTab=\'' + t[0] + '\';modalFichaEmpleado(\'' + empId + '\')">' + t[1] + '</button>';
-  });
-  body += '</div>';
-
-  // Tab content
-  if (tab === 'datos') {
-    var hoy = todayStr();
-    var turnoHoy = calcTurno(emp, hoy);
-    body += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">';
-    body += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">Usuario</span><code>' + emp.username + '</code></div>';
-    body += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">Turno hoy</span><span class="turno-badge ' + (turnoHoy || 'D') + '">' + (turnoHoy || 'D') + '</span></div>';
-    body += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">Teléfono</span><span>' + (emp.telefono || '—') + '</span></div>';
-    body += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">Notas</span><span>' + (emp.notas || '—') + '</span></div>';
-    body += '</div>';
-
-    // Resumen rápido
-    body += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px">';
-    body += '<div style="text-align:center;padding:12px;background:var(--bg);border-radius:8px"><div style="font-size:20px;font-weight:800">' + ausencias.length + '</div><div style="font-size:10px;color:var(--text2)">Ausencias</div></div>';
-    var diasVac = vacaciones.filter(function(v) { return v.estado !== 'rechazada'; }).reduce(function(s, v) { return s + v.dias_solicitados; }, 0);
-    body += '<div style="text-align:center;padding:12px;background:var(--bg);border-radius:8px"><div style="font-size:20px;font-weight:800">' + diasVac + '</div><div style="font-size:10px;color:var(--text2)">Días vacaciones</div></div>';
-    body += '<div style="text-align:center;padding:12px;background:var(--bg);border-radius:8px"><div style="font-size:20px;font-weight:800">' + intercambios.length + '</div><div style="font-size:10px;color:var(--text2)">Intercambios</div></div>';
-    body += '<div style="text-align:center;padding:12px;background:var(--bg);border-radius:8px"><div style="font-size:20px;font-weight:800">' + diasLibres.length + '</div><div style="font-size:10px;color:var(--text2)">Días libres</div></div>';
-    body += '</div>';
-  }
-
-  if (tab === 'ausencias') {
-    if (ausencias.length === 0) {
-      body += '<div style="text-align:center;padding:20px;color:var(--text3)">Sin ausencias registradas</div>';
-    } else {
-      body += '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--bg)">';
-      body += '<th style="padding:6px 8px;text-align:left">Tipo</th><th style="padding:6px 8px">Desde</th><th style="padding:6px 8px">Hasta</th><th style="padding:6px 8px">Días</th><th style="padding:6px 8px">Cobertura</th><th></th>';
-      body += '</tr></thead><tbody>';
-      ausencias.forEach(function(a) {
-        var dias = Math.round((new Date(a.fecha_fin + 'T12:00:00') - new Date(a.fecha_inicio + 'T12:00:00')) / 86400000) + 1;
-        body += '<tr style="border-bottom:1px solid var(--border)">';
-        body += '<td style="padding:6px 8px;font-weight:600">' + a.tipo + '</td>';
-        body += '<td style="padding:6px 8px">' + formatDateES(a.fecha_inicio) + '</td>';
-        body += '<td style="padding:6px 8px">' + formatDateES(a.fecha_fin) + '</td>';
-        body += '<td style="padding:6px 8px;font-weight:600">' + dias + '</td>';
-        body += '<td style="padding:6px 8px">' + (a.cobertura_tipo || '—') + '</td>';
-        body += '<td style="padding:6px 8px"><button class="btn btn-sm btn-ghost" onclick="closeModal();modalEditarAusencia(\'' + a.id + '\')">✎</button></td>';
-        body += '</tr>';
-      });
-      body += '</tbody></table>';
-    }
-    body += '<button class="btn btn-sm btn-blue" style="margin-top:12px" onclick="closeModal();modalNuevaAusencia()">+ Registrar ausencia</button>';
-  }
-
-  if (tab === 'vacaciones') {
-    if (vacaciones.length === 0) {
-      body += '<div style="text-align:center;padding:20px;color:var(--text3)">Sin solicitudes de vacaciones</div>';
-    } else {
-      body += '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--bg)">';
-      body += '<th style="padding:6px 8px;text-align:left">Ronda</th><th style="padding:6px 8px">Desde</th><th style="padding:6px 8px">Hasta</th><th style="padding:6px 8px">Días</th><th style="padding:6px 8px">Estado</th><th></th>';
-      body += '</tr></thead><tbody>';
-      vacaciones.forEach(function(v) {
-        body += '<tr style="border-bottom:1px solid var(--border)">';
-        var ronda = state.rondas ? state.rondas.find(function(r) { return r.id === v.ronda_id; }) : null;
-        body += '<td style="padding:6px 8px">' + (ronda ? ronda.nombre : 'R?') + '</td>';
-        body += '<td style="padding:6px 8px">' + formatDateES(v.fecha_inicio) + '</td>';
-        body += '<td style="padding:6px 8px">' + formatDateES(v.fecha_fin) + '</td>';
-        body += '<td style="padding:6px 8px;font-weight:600">' + v.dias_solicitados + '</td>';
-        body += '<td style="padding:6px 8px"><span class="status-badge ' + v.estado + '">' + v.estado + '</span></td>';
-        body += '<td style="padding:6px 8px"><button class="btn btn-sm btn-ghost" onclick="closeModal();modalEditarSolicitud(\'' + v.id + '\')">✎</button></td>';
-        body += '</tr>';
-      });
-      body += '</tbody></table>';
-    }
-  }
-
-  if (tab === 'intercambios') {
-    if (intercambios.length === 0) {
-      body += '<div style="text-align:center;padding:20px;color:var(--text3)">Sin intercambios</div>';
-    } else {
-      body += '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--bg)">';
-      body += '<th style="padding:6px 8px;text-align:left">Fecha</th><th style="padding:6px 8px">Compañero</th><th style="padding:6px 8px">Turno</th><th style="padding:6px 8px">Área</th><th style="padding:6px 8px">Estado</th><th></th>';
-      body += '</tr></thead><tbody>';
-      intercambios.forEach(function(ic) {
-        var esSol = ic.solicitante_id === empId;
-        var otro = state.empleados.find(function(e) { return e.id === (esSol ? ic.receptor_id : ic.solicitante_id); });
-        var miTurno = esSol ? ic.turno_solicitante : ic.turno_receptor;
-        var miArea = esSol ? getArea(ic.area_solicitante_id) : getArea(ic.area_receptor_id);
-        body += '<tr style="border-bottom:1px solid var(--border)">';
-        body += '<td style="padding:6px 8px">' + formatDateES(ic.fecha_solicitante) + '</td>';
-        body += '<td style="padding:6px 8px">' + (otro ? otro.nombre + ' ' + otro.apellidos : '?') + '</td>';
-        body += '<td style="padding:6px 8px"><span class="turno-badge ' + (miTurno || '') + '">' + (miTurno || '?') + '</span></td>';
-        body += '<td style="padding:6px 8px">' + (miArea ? miArea.nombre : '—') + '</td>';
-        body += '<td style="padding:6px 8px"><span class="status-badge ' + ic.estado + '">' + ic.estado + '</span></td>';
-        body += '<td style="padding:6px 8px"><button class="btn btn-sm btn-ghost" onclick="closeModal();modalEditarIntercambio(\'' + ic.id + '\')">✎</button></td>';
-        body += '</tr>';
-      });
-      body += '</tbody></table>';
-    }
-  }
-
-  if (tab === 'dias-libres') {
-    if (diasLibres.length === 0) {
-      body += '<div style="text-align:center;padding:20px;color:var(--text3)">Sin solicitudes de días libres</div>';
-    } else {
-      body += '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--bg)">';
-      body += '<th style="padding:6px 8px;text-align:left">Concepto</th><th style="padding:6px 8px">Desde</th><th style="padding:6px 8px">Hasta</th><th style="padding:6px 8px">Días</th><th style="padding:6px 8px">Estado</th><th></th>';
-      body += '</tr></thead><tbody>';
-      diasLibres.forEach(function(dl) {
-        body += '<tr style="border-bottom:1px solid var(--border)">';
-        body += '<td style="padding:6px 8px;font-weight:600">' + dl.concepto + '</td>';
-        body += '<td style="padding:6px 8px">' + formatDateES(dl.fecha_inicio) + '</td>';
-        body += '<td style="padding:6px 8px">' + formatDateES(dl.fecha_fin) + '</td>';
-        body += '<td style="padding:6px 8px;font-weight:600">' + dl.dias + '</td>';
-        body += '<td style="padding:6px 8px"><span class="status-badge ' + dl.estado + '">' + dl.estado + '</span></td>';
-        body += '<td style="padding:6px 8px"><button class="btn btn-sm btn-ghost" onclick="closeModal();modalEditarDiaLibre(\'' + dl.id + '\')">✎</button></td>';
-        body += '</tr>';
-      });
-      body += '</tbody></table>';
-    }
-  }
-
-  // Use wide modal
-  var existing = document.getElementById('global-modal');
-  if (existing) existing.remove();
-  var m = document.createElement('div');
-  m.className = 'modal-overlay';
-  m.id = 'global-modal';
-  m.onclick = function() { state.fichaTab = 'datos'; closeModal(); };
-  m.innerHTML = '<div class="modal" style="max-width:800px" onclick="event.stopPropagation()">' +
-    '<div class="modal-header"><span class="modal-title">Ficha de empleado</span><button class="btn btn-ghost" onclick="state.fichaTab=\'datos\';closeModal()" style="padding:4px">✕</button></div>' +
-    '<div class="modal-body" style="max-height:70vh;overflow-y:auto">' + body + '</div></div>';
-  document.body.appendChild(m);
-}
-
 // =====================================================================
 // EDITAR/ELIMINAR INTERCAMBIOS (gestor)
 // =====================================================================
