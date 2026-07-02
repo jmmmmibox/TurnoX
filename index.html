@@ -1468,6 +1468,29 @@ async function loadAllData() {
     state.polivalencias = results[5].status === 'fulfilled' ? results[5].value : [];
     state.turnosEditados = results[6].status === 'fulfilled' ? results[6].value : [];
 
+    // Load config_planta (tipos ausencia, cobertura, conceptos días libres)
+    if (PLANTA_ID) {
+      try {
+        var configs = await sbQuery('config_planta', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] });
+        var defaults = {
+          tipos_ausencia: ['Baja médica', 'Licencia', 'Ausencia justificada', 'Ausencia injustificada', 'Permiso retribuido', 'Accidente laboral'],
+          tipos_cobertura: ['Equipo de refuerzo', 'Polivalente', 'Modo 12 horas', 'Horas extra compañero', 'Sin cobertura'],
+          conceptos_dias_libres: ['Asuntos propios', 'Cita médica', 'Mudanza', 'Formación', 'Compensación horas extra', 'Acompañamiento familiar', 'Trámites oficiales']
+        };
+        var getConfig = function(clave) {
+          var row = configs ? configs.find(function(c) { return c.clave === clave; }) : null;
+          return row ? row.valor_json : defaults[clave];
+        };
+        state.tiposAusencia = getConfig('tipos_ausencia');
+        state.tiposCobertura = getConfig('tipos_cobertura');
+        state.conceptosDiasLibres = getConfig('conceptos_dias_libres');
+      } catch(ec) {
+        state.tiposAusencia = ['Baja médica', 'Licencia', 'Ausencia justificada', 'Ausencia injustificada', 'Permiso retribuido', 'Accidente laboral'];
+        state.tiposCobertura = ['Equipo de refuerzo', 'Polivalente', 'Modo 12 horas', 'Horas extra compañero', 'Sin cobertura'];
+        state.conceptosDiasLibres = ['Asuntos propios', 'Cita médica', 'Mudanza', 'Formación', 'Compensación horas extra', 'Acompañamiento familiar', 'Trámites oficiales'];
+      }
+    }
+
     console.log('Data loaded:', {
       empleados: state.empleados.length,
       areas: state.areas.length,
@@ -2551,8 +2574,6 @@ async function renderIntercambios() {
 // DÍAS LIBRES
 // =====================================================================
 // Conceptos configurables
-if (!state.conceptosDiasLibres) state.conceptosDiasLibres = ['Asuntos propios', 'Cita médica', 'Mudanza', 'Formación', 'Compensación horas extra', 'Acompañamiento familiar', 'Trámites oficiales'];
-
 function modalSolicitarDiaLibre() {
   var body = '<div class="form-group"><label class="form-label">Concepto</label><select class="form-input" id="sdl-concepto">';
   state.conceptosDiasLibres.forEach(function(c) { body += '<option value="' + c + '">' + c + '</option>'; });
@@ -2621,7 +2642,6 @@ function modalVerDiaLibre(dlId) {
 
 // GESTOR — Días libres
 async function renderDiasLibres() {
-  if (!state.conceptosDiasLibres) state.conceptosDiasLibres = ['Asuntos propios', 'Cita médica', 'Mudanza', 'Formación', 'Compensación horas extra', 'Acompañamiento familiar', 'Trámites oficiales'];
   if (!state.dlTab) state.dlTab = 'pendientes';
 
   var solicitudes = [];
@@ -2782,8 +2802,8 @@ function modalConfigConceptosDL() {
   body += '<button class="btn btn-sm btn-outline" onclick="addConceptoDL()">+</button></div>';
   openModal('Configurar conceptos', body, '<button class="btn btn-blue" onclick="closeModal()">Cerrar</button>');
 }
-function addConceptoDL() { var v = document.getElementById('cfg-nuevo-concepto').value.trim(); if (!v) return; state.conceptosDiasLibres.push(v); closeModal(); modalConfigConceptosDL(); }
-function removeConceptoDL(i) { state.conceptosDiasLibres.splice(i, 1); closeModal(); modalConfigConceptosDL(); }
+function addConceptoDL() { var v = document.getElementById('cfg-nuevo-concepto').value.trim(); if (!v) return; state.conceptosDiasLibres.push(v); saveConfig('conceptos_dias_libres', state.conceptosDiasLibres); closeModal(); modalConfigConceptosDL(); }
+function removeConceptoDL(i) { state.conceptosDiasLibres.splice(i, 1); saveConfig('conceptos_dias_libres', state.conceptosDiasLibres); closeModal(); modalConfigConceptosDL(); }
 
 function abrirFichaEmpleado(empId) {
   state.fichaEmpId = empId;
@@ -2871,6 +2891,16 @@ async function renderEmpleadoDetalle(empId) {
       html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">' + r[0] + '</span><span>' + r[1] + '</span></div>';
     });
     if (emp.notas) html += '<div style="padding:8px 0"><span style="color:var(--text2)">Notas</span><div style="margin-top:4px;font-size:12px;color:var(--text)">' + emp.notas + '</div></div>';
+    html += '</div></div></div>';
+
+    // Contraseña
+    html += '<div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title">Contraseña de acceso</span></div><div class="card-body">';
+    html += '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">';
+    html += '<div class="form-group" style="margin:0;flex:1;min-width:200px"><label class="form-label">Nueva contraseña</label>';
+    html += '<div class="pass-wrap"><input type="password" class="form-input" id="ficha-pass">';
+    html += '<button type="button" class="pass-toggle" onclick="togglePass(\'ficha-pass\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+    html += '<button class="btn btn-blue" onclick="guardarPassFicha(\'' + empId + '\')">Guardar contraseña</button>';
+    html += '<button class="btn btn-outline" style="color:var(--warning)" onclick="resetearPassFicha(\'' + empId + '\')" title="El empleado deberá crear una nueva contraseña en su próximo acceso">Resetear (forzar cambio)</button>';
     html += '</div></div></div>';
 
     // Calendario mini del mes actual
@@ -3084,8 +3114,6 @@ async function renderAusencias() {
   let ausencias = [];
   try { ausencias = await sbQuery('ausencias', { select: '*', order: 'fecha_inicio.desc', limit: 100 }); } catch (e) {}
 
-  if (!state.tiposAusencia) state.tiposAusencia = ['Baja médica', 'Licencia', 'Ausencia justificada', 'Ausencia injustificada', 'Permiso retribuido', 'Accidente laboral'];
-  if (!state.tiposCobertura) state.tiposCobertura = ['Equipo de refuerzo', 'Polivalente', 'Modo 12 horas', 'Horas extra compañero', 'Sin cobertura'];
   if (!state.ausTab) state.ausTab = 'activas';
 
   var hoy = todayStr();
@@ -4923,10 +4951,10 @@ function modalConfigTiposAusencia() {
   body += '<button class="btn btn-sm btn-outline" onclick="addTipoCobertura()">+</button></div>';
   openModal('Configurar tipos', body, '<button class="btn btn-blue" onclick="closeModal()">Cerrar</button>');
 }
-function addTipoAusencia() { var v = document.getElementById('cfg-nuevo-tipo').value.trim(); if (!v) return; state.tiposAusencia.push(v); closeModal(); modalConfigTiposAusencia(); }
-function removeTipoAusencia(i) { state.tiposAusencia.splice(i, 1); closeModal(); modalConfigTiposAusencia(); }
-function addTipoCobertura() { var v = document.getElementById('cfg-nuevo-cob').value.trim(); if (!v) return; state.tiposCobertura.push(v); closeModal(); modalConfigTiposAusencia(); }
-function removeTipoCobertura(i) { state.tiposCobertura.splice(i, 1); closeModal(); modalConfigTiposAusencia(); }
+function addTipoAusencia() { var v = document.getElementById('cfg-nuevo-tipo').value.trim(); if (!v) return; state.tiposAusencia.push(v); saveConfig('tipos_ausencia', state.tiposAusencia); closeModal(); modalConfigTiposAusencia(); }
+function removeTipoAusencia(i) { state.tiposAusencia.splice(i, 1); saveConfig('tipos_ausencia', state.tiposAusencia); closeModal(); modalConfigTiposAusencia(); }
+function addTipoCobertura() { var v = document.getElementById('cfg-nuevo-cob').value.trim(); if (!v) return; state.tiposCobertura.push(v); saveConfig('tipos_cobertura', state.tiposCobertura); closeModal(); modalConfigTiposAusencia(); }
+function removeTipoCobertura(i) { state.tiposCobertura.splice(i, 1); saveConfig('tipos_cobertura', state.tiposCobertura); closeModal(); modalConfigTiposAusencia(); }
 
 
 
@@ -5802,6 +5830,36 @@ async function markAllRead() {
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('mobile-overlay').classList.toggle('show');
+}
+
+async function saveConfig(clave, valor) {
+  if (!PLANTA_ID) return;
+  try {
+    var existing = await sbQuery('config_planta', { select: 'id', filters: ['planta_id=eq.' + PLANTA_ID, 'clave=eq.' + clave] });
+    if (existing && existing.length > 0) {
+      await sbUpdate('config_planta', existing[0].id, { valor_json: valor });
+    } else {
+      await sbInsert('config_planta', { planta_id: PLANTA_ID, clave: clave, valor_json: valor });
+    }
+  } catch(e) { console.error('saveConfig error:', e); }
+}
+
+async function guardarPassFicha(empId) {
+  var pass = document.getElementById('ficha-pass').value.trim();
+  if (!pass || pass.length < 4) { showToast('Mínimo 4 caracteres', 'error'); return; }
+  try {
+    await sbUpdate('empleados', empId, { password_hash: pass, primer_login: false });
+    document.getElementById('ficha-pass').value = '';
+    showToast('Contraseña actualizada', 'success');
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function resetearPassFicha(empId) {
+  if (!confirm('¿Resetear contraseña? El empleado deberá crear una nueva en su próximo acceso.')) return;
+  try {
+    await sbUpdate('empleados', empId, { password_hash: '', primer_login: true });
+    showToast('Contraseña reseteada. El empleado creará una nueva al entrar.', 'success');
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 // =====================================================================
