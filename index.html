@@ -2990,14 +2990,6 @@ async function renderEmpleadoDetalle(empId) {
   // Update header title
   document.getElementById('page-title').textContent = emp.nombre + ' ' + emp.apellidos;
 }
-  var emp = state.empleados.find(function(e) { return e.id === empId; });
-  if (!emp) return;
-  var letra = getLetra(emp.letra_id);
-  var area = getArea(emp.area_principal_id);
-  var polivs = state.polivalencias.filter(function(p) { return p.empleado_id === empId; }).map(function(p) { var a = getArea(p.area_id); return a ? a.nombre : ''; }).filter(Boolean);
-
-  if (!state.fichaTab) state.fichaTab = 'datos';
-  var tab = state.fichaTab;
 // =====================================================================
 // EDITAR/ELIMINAR INTERCAMBIOS (gestor)
 // =====================================================================
