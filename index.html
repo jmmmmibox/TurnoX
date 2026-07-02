@@ -1802,9 +1802,9 @@ function renderDashboard() {
   }
 
   // === FILA 4: TABLA DE TURNOS + COBERTURA POR ÁREAS ===
-  html += '<div class="dashboard-grid">';
+  html += '<div style="margin-top:4px">';
 
-  // Tabla de turnos
+  // Tabla de turnos a ancho completo
   html += '<div class="card"><div class="card-header"><span class="card-title">Distribución de turnos</span>';
   html += '<button class="btn btn-sm btn-outline" onclick="navigateTo(\'calendario\')">Calendario</button></div>';
   html += '<div style="overflow-x:auto">';
@@ -1839,55 +1839,6 @@ function renderDashboard() {
   });
   html += '</div></div>';
 
-  // Cobertura por áreas
-  html += '<div style="display:flex;flex-direction:column;gap:16px">';
-  [
-    { tipo: 'M', label: 'Mañana', list: manana, extras: sol, color: 'var(--turno-M-text)', bg: 'var(--turno-M)' },
-    { tipo: 'T', label: 'Tarde', list: tarde, extras: sol.concat(luna), color: 'var(--turno-T-text)', bg: 'var(--turno-T)' },
-    { tipo: 'N', label: 'Noche', list: noche, extras: luna, color: 'var(--turno-N-text)', bg: 'var(--turno-N)' },
-  ].forEach(function(turno) {
-    var combined = turno.list.concat(turno.extras);
-    if (combined.length === 0) return;
-    var allCovered = state.areas.every(function(a) { return combined.some(function(et) { return et.areaRealId === a.id; }); });
-    html += '<div class="card"><div class="card-header" style="background:' + turno.bg + '">';
-    html += '<span class="card-title" style="color:' + turno.color + '">Áreas — ' + turno.label + '</span>';
-    html += '<span style="font-size:11px;font-weight:700;color:' + (allCovered ? '#166534' : '#991B1B') + ';background:' + (allCovered ? '#DCFCE7' : '#FEE2E2') + ';padding:2px 8px;border-radius:10px">' + (allCovered ? '✓ OK' : '⚠ Incompleto') + '</span>';
-    html += '</div><div class="card-body" style="padding:8px 16px">';
-    state.areas.forEach(function(area) {
-      var empsArea = combined.filter(function(et) { return et.areaRealId === area.id; });
-      var count = empsArea.length;
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)">';
-      html += '<div style="display:flex;align-items:center;gap:6px"><div style="width:8px;height:8px;border-radius:50%;background:' + (count > 0 ? '#22C55E' : '#EF4444') + '"></div>';
-      html += '<span style="font-size:12px">' + area.nombre + '</span></div>';
-      if (count > 0) {
-        html += '<div style="display:flex;align-items:center;gap:4px">';
-        empsArea.forEach(function(et) {
-          var l2 = getLetra(et.emp.letra_id);
-          html += '<span style="font-size:9px;background:' + (l2 ? l2.color + '22' : '#eee') + ';color:' + (l2 ? l2.color : '#999') + ';padding:1px 4px;border-radius:3px;font-weight:600">' + (l2 ? l2.nombre : '') + '</span>';
-        });
-        html += '</div>';
-      } else {
-        html += '<span style="font-size:11px;font-weight:700;color:var(--danger)">SIN CUBRIR</span>';
-      }
-      html += '</div>';
-    });
-    html += '</div></div>';
-  });
-
-  if (refuerzo.length > 0) {
-    html += '<div class="card"><div class="card-header" style="background:var(--turno-R)"><span class="card-title" style="color:var(--turno-R-text)">Refuerzo</span>';
-    html += '<span style="font-size:11px;font-weight:700;color:var(--turno-R-text)">' + refuerzo.length + '</span></div>';
-    html += '<div class="card-body" style="padding:8px 16px">';
-    refuerzo.forEach(function(et) {
-      var areaReal = getArea(et.areaRealId);
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">';
-      html += '<span style="font-size:12px">' + et.emp.nombre + ' ' + et.emp.apellidos + '</span>';
-      html += '<span style="font-size:11px;color:var(--text2)">' + (areaReal ? areaReal.nombre : '') + '</span></div>';
-    });
-    html += '</div></div>';
-  }
-
-  html += '</div></div>';
   document.getElementById('page-dashboard').innerHTML = html;
 }
 
