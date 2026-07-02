@@ -5384,7 +5384,10 @@ async function renderAdminPlantas() {
 
   var html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px">';
   html += '<h2 style="font-size:15px;font-weight:600">Plantas</h2>';
-  html += '<button class="btn btn-blue" onclick="modalNuevaPlanta()">+ Crear planta</button></div>';
+  html += '<div style="display:flex;gap:8px">';
+  html += '<button class="btn btn-outline" onclick="mostrarSelectorPlanta(state._pendingUser || state.user, state.plantasDisponibles)">← Cambiar planta</button>';
+  html += '<button class="btn btn-blue" onclick="modalNuevaPlanta()">+ Crear planta</button>';
+  html += '</div></div>';
 
   html += '<div class="card"><div style="overflow:auto"><table class="emp-table"><thead><tr>';
   html += '<th>Nombre</th><th>Descripción</th><th>Gestores</th><th>Estado</th><th></th>';
@@ -5601,50 +5604,75 @@ async function ejecutarNuevoAno() {
   var plantaId = document.getElementById('na-planta').value;
   var year = parseInt(document.getElementById('na-year').value);
   if (!plantaId || !year) { showToast('Selecciona planta y año', 'error'); return; }
-  if (!confirm('¿Crear estructura para el año ' + year + '? Los ciclos se crearán vacíos.')) return;
+  if (!confirm('¿Crear estructura para el año ' + year + '?\n\nSe crearán:\n• Festivos (copia del año anterior)\n• Ciclos vacíos por letra\n• 3 rondas de vacaciones\n\nLos elementos ya existentes se omitirán.')) return;
+
+  var resultados = { festivos: 0, ciclos: 0, rondas: 0, errores: [] };
 
   try {
     showToast('Creando año ' + year + '...');
-    // Copy festivos nacionales for new year
-    var festivos = await sbQuery('festivos', { select: '*', filters: ['planta_id=eq.' + plantaId] });
-    var festivosCopied = 0;
-    for (var i = 0; i < festivos.length; i++) {
-      var f = festivos[i];
-      var newFecha = f.fecha.replace(/^\d{4}/, year);
+
+    // 1. Copiar festivos del año anterior, filtrando solo los del año pasado
+    var yearAnterior = year - 1;
+    var festivosBase = await sbQuery('festivos', { select: '*', filters: ['planta_id=eq.' + plantaId] });
+    var festivosAnoAnterior = (festivosBase || []).filter(function(f) { return f.fecha && f.fecha.startsWith(yearAnterior + ''); });
+    var festivosNuevoAno = (festivosBase || []).filter(function(f) { return f.fecha && f.fecha.startsWith(year + ''); });
+    var fechasExistentes = new Set(festivosNuevoAno.map(function(f) { return f.fecha; }));
+
+    for (var i = 0; i < festivosAnoAnterior.length; i++) {
+      var f = festivosAnoAnterior[i];
+      var newFecha = year + f.fecha.substring(4); // Replace year part only
+      if (fechasExistentes.has(newFecha)) continue; // Skip if already exists
       try {
         await sbInsert('festivos', { planta_id: plantaId, fecha: newFecha, nombre: f.nombre });
-        festivosCopied++;
-      } catch(ef) {}
+        resultados.festivos++;
+      } catch(ef) { resultados.errores.push('Festivo ' + newFecha); }
     }
 
-    // Create empty ciclos for each letra
+    // 2. Crear ciclos vacíos por letra (skip if already exists for this year)
     var letras = await sbQuery('letras', { select: '*', filters: ['planta_id=eq.' + plantaId] });
+    var ciclosExist = await sbQuery('ciclos_config', { select: 'letra_id', filters: ['año=eq.' + year] });
+    var letrasConCiclo = new Set((ciclosExist || []).map(function(c) { return c.letra_id; }));
+
     for (var j = 0; j < letras.length; j++) {
-      await sbInsert('ciclos_config', {
-        letra_id: letras[j].id,
-        "año": year,
-        orden: 1,
-        tipo: 'turno',
-        fecha_inicio: year + '-01-01',
-        fecha_fin: year + '-12-31',
-        turno_inicial: 'M'
-      });
+      if (letrasConCiclo.has(letras[j].id)) continue;
+      try {
+        await sbInsert('ciclos_config', {
+          letra_id: letras[j].id,
+          "año": year,
+          orden: 1,
+          tipo: 'turno',
+          fecha_inicio: year + '-01-01',
+          fecha_fin: year + '-12-31',
+          turno_inicial: 'M'
+        });
+        resultados.ciclos++;
+      } catch(ec) { resultados.errores.push('Ciclo letra ' + letras[j].nombre); }
     }
 
-    // Create empty vacaciones_rondas for new year
+    // 3. Crear rondas de vacaciones (skip if already exist)
+    var rondasExist = await sbQuery('vacaciones_rondas', { select: 'numero_ronda', filters: ['planta_id=eq.' + plantaId] });
+    var rondasExistentes = new Set((rondasExist || []).map(function(r) { return r.numero_ronda; }));
+    var nombresR = ['Ronda 1 — Vacaciones principales', 'Ronda 2 — Vacaciones secundarias', 'Ronda 3 — Días PRL'];
+    var diasR = [12, 10, 4];
+
     for (var r = 1; r <= 3; r++) {
-      var nombres = ['Ronda 1 — Vacaciones principales', 'Ronda 2 — Vacaciones secundarias', 'Ronda 3 — Días PRL'];
-      var diasR = [12, 10, 4];
-      await sbInsert('vacaciones_rondas', {
-        planta_id: plantaId,
-        numero_ronda: r,
-        nombre: nombres[r-1],
-        dias: diasR[r-1],
-        abierta: false
-      });
+      if (rondasExistentes.has(r)) continue;
+      try {
+        await sbInsert('vacaciones_rondas', {
+          planta_id: plantaId,
+          numero_ronda: r,
+          nombre: nombresR[r-1],
+          descripcion: nombresR[r-1],
+          dias: diasR[r-1],
+          abierta: false
+        });
+        resultados.rondas++;
+      } catch(er) { resultados.errores.push('Ronda ' + r); }
     }
 
-    showToast('Año ' + year + ' creado: ' + festivosCopied + ' festivos, ' + letras.length + ' ciclos, 3 rondas vacaciones', 'success');
+    var msg = 'Año ' + year + ' creado — ' + resultados.festivos + ' festivos, ' + resultados.ciclos + ' ciclos, ' + resultados.rondas + ' rondas';
+    if (resultados.errores.length > 0) msg += ' (' + resultados.errores.length + ' ya existían o errores)';
+    showToast(msg, 'success');
   } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
 
