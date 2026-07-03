@@ -1693,7 +1693,6 @@ function buildNav() {
   // Show "Mis plantas" always for gestores
   if (!state.user.modoAdmin && (state.user.tipo === 'gestor' || state.user.tipo === 'superadmin')) {
     items = items.concat([
-      { separator: '' },
       { id: 'cambiar-planta', label: state.plantasDisponibles.length > 1 ? 'Cambiar planta' : 'Mis plantas', icon: 'grid' },
     ]);
   }
