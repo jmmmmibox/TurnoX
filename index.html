@@ -1297,15 +1297,39 @@ function mostrarSelectorPlanta(user, plantas) {
     html += '<span style="font-weight:600">' + p.nombre + '</span>';
     html += '<span style="font-size:12px;color:var(--text3)">' + (p.descripcion || '') + '</span></button>';
   });
-  if (state.isSuperAdmin) {
-    // superadmin just sees plants, no admin panel button
+
+  // Allow creating a new plant if < 3 plants
+  if (plantas.length < 3) {
+    html += '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
+    html += '<div id="nueva-planta-form" style="display:none;flex-direction:column;gap:8px;margin-bottom:8px">';
+    html += '<input class="form-input" id="np-nombre" placeholder="Nombre de la nueva planta">';
+    html += '<div style="display:flex;gap:8px">';
+    html += '<button class="btn btn-blue" style="flex:1" onclick="crearNuevaPlantaSelector()">Crear</button>';
+    html += '<button class="btn btn-ghost" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'none\'">Cancelar</button>';
+    html += '</div></div>';
+    html += '<button class="btn btn-outline w-full" style="border-style:dashed;color:var(--text2)" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'flex\'">+ Crear nueva planta</button>';
+    html += '</div>';
   }
+
   html += '</div>';
   html += '<button class="btn btn-ghost w-full" style="margin-top:12px" onclick="logout()">Cerrar sesión</button>';
   html += '</div>';
   sel.innerHTML = html;
-  // Store user for later
   state._pendingUser = user;
+}
+
+async function crearNuevaPlantaSelector() {
+  var nombre = document.getElementById('np-nombre') ? document.getElementById('np-nombre').value.trim() : '';
+  if (!nombre) { alert('Indica el nombre de la planta'); return; }
+  try {
+    var result = await sbInsert('plantas', { nombre: nombre, activa: true });
+    // Get the new plant id
+    var nuevaPlanta = await sbQuery('plantas', { select: '*', filters: ['nombre=eq.' + nombre], order: 'created_at.desc', limit: 1 });
+    if (nuevaPlanta && nuevaPlanta[0]) {
+      state.plantasDisponibles.push(nuevaPlanta[0]);
+    }
+    mostrarSelectorPlanta(state._pendingUser, state.plantasDisponibles);
+  } catch(e) { alert('Error: ' + e.message); }
 }
 
 function seleccionarPlanta(plantaId) {
