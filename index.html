@@ -1791,7 +1791,19 @@ function renderDashboard() {
   // Cobertura por franja
   var coberturas = [
     { label: 'Mañana', combined: manana.concat(sol) },
-    { label: 'Tarde', combined: tarde.concat(sol).concat(luna) },
+    { label: 'Tarde', combined: (function() {
+      // Tarde: T cubre todo, S+L juntos cubren todo, pero solo S o solo L no cubre
+      var tardeList = tarde.slice();
+      // For each area, add sol employees only if there's also a luna in the same area
+      state.areas.forEach(function(a) {
+        var hasSol = sol.some(function(et) { return et.areaRealId === a.id; });
+        var hasLuna = luna.some(function(et) { return et.areaRealId === a.id; });
+        if (hasSol && hasLuna) {
+          sol.filter(function(et) { return et.areaRealId === a.id; }).forEach(function(et) { tardeList.push(et); });
+        }
+      });
+      return tardeList;
+    })() },
     { label: 'Noche', combined: noche.concat(luna) },
   ].map(function(f) {
     f.ok = state.areas.every(function(a) { return f.combined.some(function(et) { return et.areaRealId === a.id; }); });
@@ -2081,7 +2093,7 @@ function renderCalendarioInner() {
 
         var cubierto = false;
         if (turnoTipo === 'M') cubierto = turnosArea.includes('M') || tieneSol;
-        else if (turnoTipo === 'T') cubierto = turnosArea.includes('T') || tieneSol || tieneLuna;
+        else if (turnoTipo === 'T') cubierto = turnosArea.includes('T') || (tieneSol && tieneLuna);
         else if (turnoTipo === 'N') cubierto = turnosArea.includes('N') || tieneLuna;
 
         if (!cubierto) descubierto = true;
@@ -2271,7 +2283,7 @@ function mostrarDescubierto(fechaStr) {
       var cubierto = false;
       if (tieneSol && tieneLuna) cubierto = true;
       else if (turnoTipo === 'M') cubierto = turnosArea.includes('M') || tieneSol;
-      else if (turnoTipo === 'T') cubierto = turnosArea.includes('T') || tieneSol || tieneLuna;
+      else if (turnoTipo === 'T') cubierto = turnosArea.includes('T') || (tieneSol && tieneLuna);
       else if (turnoTipo === 'N') cubierto = turnosArea.includes('N') || tieneLuna;
 
       if (cubierto) areasOk.push(a);
@@ -3792,7 +3804,15 @@ function renderMiTurno() {
   html += '<div style="display:flex;flex-direction:column;gap:16px">';
   [
     { tipo: 'M', label: 'Mañana', list: manana, extras: solE, color: 'var(--turno-M-text)', bg: 'var(--turno-M)' },
-    { tipo: 'T', label: 'Tarde', list: tarde, extras: solE.concat(lunaE), color: 'var(--turno-T-text)', bg: 'var(--turno-T)' },
+    { tipo: 'T', label: 'Tarde', list: tarde, extras: (function() {
+      var ext = [];
+      state.areas.forEach(function(a) {
+        var hasSol = solE.some(function(et) { return et.areaRealId === a.id; });
+        var hasLuna = lunaE.some(function(et) { return et.areaRealId === a.id; });
+        if (hasSol && hasLuna) solE.filter(function(et) { return et.areaRealId === a.id; }).forEach(function(et) { ext.push(et); });
+      });
+      return ext;
+    })(), color: 'var(--turno-T-text)', bg: 'var(--turno-T)' },
     { tipo: 'N', label: 'Noche', list: noche, extras: lunaE, color: 'var(--turno-N-text)', bg: 'var(--turno-N)' },
   ].forEach(function(turno) {
     var combined = turno.list.concat(turno.extras);
