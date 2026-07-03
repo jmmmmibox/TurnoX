@@ -5593,7 +5593,7 @@ async function crearGestorAdmin() {
 
   try {
     // Insert gestor
-    var result = await sbInsert('gestores', {
+    await sbInsert('gestores', {
       nombre: nombre,
       username: username,
       email: document.getElementById('ng-email').value.trim() || null,
