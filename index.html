@@ -929,17 +929,18 @@ td.col-descubierto { background: #FEF2F2 !important; }
     </div>
     <div id="login-gestor">
       <div class="form-group">
-        <label class="form-label">Usuario <span style="font-weight:400;color:var(--text3)">(o email si eres el administrador)</span></label>
-        <input type="text" class="form-input" id="g-email" placeholder="usuario.gestor">
+        <label class="form-label">Email</label>
+        <input type="email" class="form-input" id="g-email" placeholder="tu@empresa.com">
       </div>
       <div class="form-group">
-        <label class="form-label">Contraseña <span style="font-weight:400;color:var(--text3)">(vacía si es tu primer acceso)</span></label>
+        <label class="form-label">Contraseña</label>
         <div class="pass-wrap">
-          <input type="password" class="form-input" id="g-pass" placeholder="Dejar vacío en primer acceso">
+          <input type="password" class="form-input" id="g-pass" placeholder="••••••••">
           <button type="button" class="pass-toggle" onclick="togglePass('g-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         </div>
       </div>
-      <button class="btn-primary" onclick="loginGestor()">Acceder como Gestor</button>
+      <button class="btn-primary" onclick="loginGestor()">Acceder</button>
+      <p style="text-align:center;font-size:12px;color:var(--text3);margin-top:12px">¿No tienes cuenta? <a href="#" onclick="switchLoginTab('registro');return false" style="color:var(--primary-light)">Regístrate</a></p>
     </div>
     <div id="login-registro" style="display:none">
       <div class="form-group">
@@ -947,18 +948,18 @@ td.col-descubierto { background: #FEF2F2 !important; }
         <input type="text" class="form-input" id="r-nombre" placeholder="Tu nombre">
       </div>
       <div class="form-group">
-        <label class="form-label">Usuario <span style="font-weight:400;color:var(--text3)">(para el login)</span></label>
-        <input type="text" class="form-input" id="r-username" placeholder="Ej: empresa.huelva">
+        <label class="form-label">Email</label>
+        <input type="email" class="form-input" id="r-email" placeholder="tu@empresa.com">
       </div>
       <div class="form-group">
         <label class="form-label">Contraseña</label>
         <div class="pass-wrap">
-          <input type="password" class="form-input" id="r-pass" placeholder="Mínimo 4 caracteres">
+          <input type="password" class="form-input" id="r-pass" placeholder="Mínimo 6 caracteres">
           <button type="button" class="pass-toggle" onclick="togglePass('r-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Nombre de tu planta / empresa</label>
+        <label class="form-label">Nombre de tu empresa / planta</label>
         <input type="text" class="form-input" id="r-planta" placeholder="Ej: Planta Huelva">
       </div>
       <button class="btn-primary" onclick="registrarGestor()">Crear cuenta</button>
@@ -1154,6 +1155,15 @@ async function sbSignIn(email, password) {
   return res.json();
 }
 
+async function sbSignUp(email, password) {
+  const res = await fetch(SUPABASE_URL + '/auth/v1/signup', {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  return res.json();
+}
+
 // =====================================================================
 // STATE
 // =====================================================================
@@ -1235,59 +1245,48 @@ function switchLoginTab(tab) {
 
 async function registrarGestor() {
   var nombre = document.getElementById('r-nombre').value.trim();
-  var username = document.getElementById('r-username').value.trim();
+  var email = document.getElementById('r-email').value.trim();
   var pass = document.getElementById('r-pass').value.trim();
   var planta = document.getElementById('r-planta').value.trim();
   var errEl = document.getElementById('login-error');
   errEl.textContent = '';
 
   if (!nombre) { errEl.textContent = 'Indica tu nombre'; return; }
-  if (!username) { errEl.textContent = 'Indica un usuario'; return; }
-  if (username.includes('@')) { errEl.textContent = 'El usuario no puede contener @'; return; }
-  if (!pass || pass.length < 4) { errEl.textContent = 'La contraseña debe tener al menos 4 caracteres'; return; }
-  if (!planta) { errEl.textContent = 'Indica el nombre de tu planta o empresa'; return; }
+  if (!email || !email.includes('@')) { errEl.textContent = 'Email no válido'; return; }
+  if (!pass || pass.length < 6) { errEl.textContent = 'La contraseña debe tener al menos 6 caracteres'; return; }
+  if (!planta) { errEl.textContent = 'Indica el nombre de tu empresa o planta'; return; }
 
   try {
-    // Check username not taken
-    var existing = await sbQuery('gestores', { select: 'id', filters: ['username=eq.' + username] });
-    if (existing && existing.length > 0) { errEl.textContent = 'Ese usuario ya existe. Elige otro.'; return; }
+    // 1. Create user in Supabase Auth
+    var r = await sbSignUp(email, pass);
+    if (r.error) { errEl.textContent = r.error.message || r.msg || 'Error en el registro'; return; }
+    if (!r.user && !r.id) { errEl.textContent = 'No se pudo crear el usuario. ¿Ya existe este email?'; return; }
 
-    // Create planta first
+    authToken = r.access_token;
+    var userId = r.user ? r.user.id : r.id;
+
+    // 2. Create planta
     await sbInsert('plantas', { nombre: planta, activa: true });
-    var nuevaPlanta = await sbQuery('plantas', { select: '*', filters: ['nombre=eq.' + planta], order: 'created_at.desc', limit: 1 });
-    if (!nuevaPlanta || nuevaPlanta.length === 0) { errEl.textContent = 'Error creando la planta'; return; }
+    var nuevaPlanta = await sbQuery('plantas', { select: '*', order: 'created_at.desc', limit: 1 });
     var plantaId = nuevaPlanta[0].id;
 
-    // Create gestor
-    await sbInsert('gestores', {
-      nombre: nombre,
-      username: username,
-      email: '',
-      activo: true,
-      rol: 'gestor',
-      primer_login: false,
-      password_hash: pass
-    });
-    var nuevoGestor = await sbQuery('gestores', { select: '*', filters: ['username=eq.' + username], limit: 1 });
-    if (!nuevoGestor || nuevoGestor.length === 0) { errEl.textContent = 'Error creando el gestor'; return; }
-    var gestor = nuevoGestor[0];
+    // 3. Create gestor row linked to Auth user
+    try {
+      await sbInsert('gestores', { id: userId, nombre: nombre, email: email, rol: 'gestor', activo: true });
+    } catch(eg) {}
 
-    // Assign planta to gestor
-    await sbInsert('gestor_plantas', { gestor_id: gestor.id, planta_id: plantaId });
+    // 4. Assign plant
+    await sbInsert('gestor_plantas', { gestor_id: userId, planta_id: plantaId });
 
-    // Enter app
+    // 5. Enter app
     PLANTA_ID = plantaId;
     state.plantasDisponibles = [nuevaPlanta[0]];
-    state._pendingUser = { tipo: 'gestor', id: gestor.id, nombre: nombre, username: username, gestorData: gestor };
-    enterApp(state._pendingUser);
+    var user = { tipo: 'gestor', id: userId, nombre: nombre, email: email };
+    state._pendingUser = user;
+    enterApp(user);
 
   } catch(e) {
-    var msg = e.message || '';
-    if (msg.includes('409') || msg.includes('unique') || msg.includes('duplicate')) {
-      errEl.textContent = 'Ese usuario ya existe. Elige otro.';
-    } else {
-      errEl.textContent = 'Error: ' + msg;
-    }
+    errEl.textContent = 'Error: ' + (e.message || 'Inténtalo de nuevo');
   }
 }
 
@@ -1305,62 +1304,33 @@ async function loginGestor() {
       return;
     }
     authToken = r.access_token;
-    const nombre = email.split('@')[0];
     const userId = r.user.id;
 
-    // Check if super admin
-    var esSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
-    state.isSuperAdmin = esSuperAdmin;
+    // Get gestor info
+    var gestorRows = await sbQuery('gestores', { select: '*', filters: ['id=eq.' + userId] });
+    var nombre = gestorRows && gestorRows[0] ? gestorRows[0].nombre : email.split('@')[0];
 
-    // Ensure gestor row exists
-    try {
-      var existG = await sbQuery('gestores', { select: 'id', filters: ['id=eq.' + userId] });
-      if (!existG || existG.length === 0) {
-        await sbInsert('gestores', { id: userId, nombre: nombre, email: email, rol: esSuperAdmin ? 'superadmin' : 'gestor' });
-      }
-    } catch(eg) {}
-
-    // Ensure super_admins row exists
-    if (esSuperAdmin) {
-      try {
-        var existSA = await sbQuery('super_admins', { select: 'id', filters: ['id=eq.' + userId] });
-        if (!existSA || existSA.length === 0) {
-          await sbInsert('super_admins', { id: userId, email: email, nombre: nombre });
-        }
-      } catch(esa) {}
-    }
-
-    // Get available plants
-    var plantas = [];
-    if (esSuperAdmin) {
-      // Super admin sees all plants
-      plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] });
-    } else {
-      // Normal gestor: check gestor_plantas
-      var gp = await sbQuery('gestor_plantas', { select: 'planta_id', filters: ['gestor_id=eq.' + userId] });
-      if (gp && gp.length > 0) {
-        var plantaIds = gp.map(function(g) { return g.planta_id; });
-        plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] });
-        plantas = plantas.filter(function(p) { return plantaIds.includes(p.id); });
-      }
-    }
+    // Get assigned plants
+    var gp = await sbQuery('gestor_plantas', { select: 'planta_id', filters: ['gestor_id=eq.' + userId] });
+    var plantaIds = (gp || []).map(function(g) { return g.planta_id; });
+    var todasPlantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] }) || [];
+    var plantas = todasPlantas.filter(function(p) { return plantaIds.includes(p.id); });
 
     state.plantasDisponibles = plantas;
+    var user = { tipo: 'gestor', id: userId, nombre: nombre, email: email };
+    state._pendingUser = user;
 
-    if (plantas.length === 0 && !esSuperAdmin) {
-      errEl.textContent = 'No tienes plantas asignadas. Contacta al administrador.';
+    if (plantas.length === 0) {
+      errEl.textContent = 'No tienes plantas asignadas. Contacta con soporte.';
       return;
     }
-
-    if (plantas.length === 1 && !esSuperAdmin) {
-      // Single plant, normal gestor → enter directly
+    if (plantas.length === 1) {
       PLANTA_ID = plantas[0].id;
-      enterApp({ tipo: 'gestor', id: userId, nombre: nombre, email: email });
-    } else if (esSuperAdmin || plantas.length > 1) {
-      // Super admin always sees selector, or gestor with multiple plants
-      mostrarSelectorPlanta({ tipo: esSuperAdmin ? 'superadmin' : 'gestor', id: userId, nombre: nombre, email: email }, plantas);
+      enterApp(user);
+    } else {
+      mostrarSelectorPlanta(user, plantas);
     }
-  } catch (e) {
+  } catch(e) {
     errEl.textContent = 'Error de conexión';
     console.error('Login error:', e);
   }
