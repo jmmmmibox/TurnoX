@@ -925,20 +925,44 @@ td.col-descubierto { background: #FEF2F2 !important; }
     <div class="login-tabs">
       <button class="login-tab active" onclick="switchLoginTab('gestor')">Gestor</button>
       <button class="login-tab" onclick="switchLoginTab('empleado')">Empleado</button>
+      <button class="login-tab" onclick="switchLoginTab('registro')">Registrarse</button>
     </div>
     <div id="login-gestor">
       <div class="form-group">
-        <label class="form-label">Email</label>
-        <input type="email" class="form-input" id="g-email" placeholder="gestor@empresa.com" >
+        <label class="form-label">Usuario <span style="font-weight:400;color:var(--text3)">(o email si eres el administrador)</span></label>
+        <input type="text" class="form-input" id="g-email" placeholder="usuario.gestor">
       </div>
       <div class="form-group">
-        <label class="form-label">Contraseña</label>
+        <label class="form-label">Contraseña <span style="font-weight:400;color:var(--text3)">(vacía si es tu primer acceso)</span></label>
         <div class="pass-wrap">
-          <input type="password" class="form-input" id="g-pass" placeholder="••••••••" >
+          <input type="password" class="form-input" id="g-pass" placeholder="Dejar vacío en primer acceso">
           <button type="button" class="pass-toggle" onclick="togglePass('g-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         </div>
       </div>
       <button class="btn-primary" onclick="loginGestor()">Acceder como Gestor</button>
+    </div>
+    <div id="login-registro" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Nombre completo</label>
+        <input type="text" class="form-input" id="r-nombre" placeholder="Tu nombre">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Usuario <span style="font-weight:400;color:var(--text3)">(para el login)</span></label>
+        <input type="text" class="form-input" id="r-username" placeholder="Ej: empresa.huelva">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contraseña</label>
+        <div class="pass-wrap">
+          <input type="password" class="form-input" id="r-pass" placeholder="Mínimo 4 caracteres">
+          <button type="button" class="pass-toggle" onclick="togglePass('r-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nombre de tu planta / empresa</label>
+        <input type="text" class="form-input" id="r-planta" placeholder="Ej: Planta Huelva">
+      </div>
+      <button class="btn-primary" onclick="registrarGestor()">Crear cuenta</button>
+      <p style="text-align:center;font-size:12px;color:var(--text3);margin-top:12px">¿Ya tienes cuenta? <a href="#" onclick="switchLoginTab('gestor');return false" style="color:var(--primary-light)">Inicia sesión</a></p>
     </div>
     <div id="login-empleado" style="display:none">
       <div class="form-group">
@@ -1201,11 +1225,70 @@ function calcTurno(empleado, fechaStr) {
 // =====================================================================
 function switchLoginTab(tab) {
   document.querySelectorAll('.login-tab').forEach((t, i) => {
-    t.classList.toggle('active', (i === 0 && tab === 'gestor') || (i === 1 && tab === 'empleado'));
+    t.classList.toggle('active', (i === 0 && tab === 'gestor') || (i === 1 && tab === 'empleado') || (i === 2 && tab === 'registro'));
   });
   document.getElementById('login-gestor').style.display = tab === 'gestor' ? '' : 'none';
   document.getElementById('login-empleado').style.display = tab === 'empleado' ? '' : 'none';
+  document.getElementById('login-registro').style.display = tab === 'registro' ? '' : 'none';
   document.getElementById('login-error').textContent = '';
+}
+
+async function registrarGestor() {
+  var nombre = document.getElementById('r-nombre').value.trim();
+  var username = document.getElementById('r-username').value.trim();
+  var pass = document.getElementById('r-pass').value.trim();
+  var planta = document.getElementById('r-planta').value.trim();
+  var errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+
+  if (!nombre) { errEl.textContent = 'Indica tu nombre'; return; }
+  if (!username) { errEl.textContent = 'Indica un usuario'; return; }
+  if (username.includes('@')) { errEl.textContent = 'El usuario no puede contener @'; return; }
+  if (!pass || pass.length < 4) { errEl.textContent = 'La contraseña debe tener al menos 4 caracteres'; return; }
+  if (!planta) { errEl.textContent = 'Indica el nombre de tu planta o empresa'; return; }
+
+  try {
+    // Check username not taken
+    var existing = await sbQuery('gestores', { select: 'id', filters: ['username=eq.' + username] });
+    if (existing && existing.length > 0) { errEl.textContent = 'Ese usuario ya existe. Elige otro.'; return; }
+
+    // Create planta first
+    await sbInsert('plantas', { nombre: planta, activa: true });
+    var nuevaPlanta = await sbQuery('plantas', { select: '*', filters: ['nombre=eq.' + planta], order: 'created_at.desc', limit: 1 });
+    if (!nuevaPlanta || nuevaPlanta.length === 0) { errEl.textContent = 'Error creando la planta'; return; }
+    var plantaId = nuevaPlanta[0].id;
+
+    // Create gestor
+    await sbInsert('gestores', {
+      nombre: nombre,
+      username: username,
+      email: '',
+      activo: true,
+      rol: 'gestor',
+      primer_login: false,
+      password_hash: pass
+    });
+    var nuevoGestor = await sbQuery('gestores', { select: '*', filters: ['username=eq.' + username], limit: 1 });
+    if (!nuevoGestor || nuevoGestor.length === 0) { errEl.textContent = 'Error creando el gestor'; return; }
+    var gestor = nuevoGestor[0];
+
+    // Assign planta to gestor
+    await sbInsert('gestor_plantas', { gestor_id: gestor.id, planta_id: plantaId });
+
+    // Enter app
+    PLANTA_ID = plantaId;
+    state.plantasDisponibles = [nuevaPlanta[0]];
+    state._pendingUser = { tipo: 'gestor', id: gestor.id, nombre: nombre, username: username, gestorData: gestor };
+    enterApp(state._pendingUser);
+
+  } catch(e) {
+    var msg = e.message || '';
+    if (msg.includes('409') || msg.includes('unique') || msg.includes('duplicate')) {
+      errEl.textContent = 'Ese usuario ya existe. Elige otro.';
+    } else {
+      errEl.textContent = 'Error: ' + msg;
+    }
+  }
 }
 
 async function loginGestor() {
