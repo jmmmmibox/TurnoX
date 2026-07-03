@@ -1324,20 +1324,22 @@ function mostrarSelectorPlanta(user, plantas) {
   html += '<h1>TurnoX</h1>';
 
   if (plantas.length === 0) {
-    // No plants yet - show create first plant
     html += '<p>Crea tu primera planta para empezar</p></div>';
     html += '<div style="display:flex;flex-direction:column;gap:8px">';
-    html += '<div class="form-group"><label class="form-label">Nombre de tu planta / empresa</label>';
+    html += '<div class="form-group"><label class="form-label">Nombre de la planta / empresa</label>';
     html += '<input class="form-input" id="np-nombre" placeholder="Ej: Planta Huelva"></div>';
     html += '<button class="btn btn-blue w-full" style="padding:14px" onclick="crearNuevaPlantaSelector()">Crear planta y entrar</button>';
   } else {
     html += '<p>Selecciona la planta</p></div>';
     html += '<div style="display:flex;flex-direction:column;gap:8px">';
     plantas.forEach(function(p) {
-      html += '<button class="btn btn-outline w-full" style="padding:14px;font-size:14px;justify-content:space-between" onclick="seleccionarPlanta(\'' + p.id + '\')">';
+      html += '<div style="display:flex;gap:8px;align-items:center">';
+      html += '<button class="btn btn-outline w-full" style="padding:14px;font-size:14px;text-align:left;flex:1" onclick="seleccionarPlanta(\'' + p.id + '\')">';
       html += '<span style="font-weight:600">' + p.nombre + '</span></button>';
+      html += '<button class="btn btn-ghost" style="color:var(--danger);padding:8px;flex-shrink:0" title="Eliminar planta" onclick="eliminarPlantaSelector(\'' + p.id + '\',\'' + p.nombre + '\')">🗑</button>';
+      html += '</div>';
     });
-    // Allow creating more plants if < 3
+
     if (plantas.length < 3) {
       html += '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
       html += '<div id="nueva-planta-form" style="display:none;flex-direction:column;gap:8px;margin-bottom:8px">';
@@ -1356,6 +1358,15 @@ function mostrarSelectorPlanta(user, plantas) {
   html += '</div>';
   sel.innerHTML = html;
   state._pendingUser = user;
+}
+
+async function eliminarPlantaSelector(plantaId, nombre) {
+  if (!confirm('¿Eliminar la planta "' + nombre + '"?\n\nSe eliminarán todos sus datos (empleados, turnos, etc.). Esta acción no se puede deshacer.')) return;
+  try {
+    await sbDelete('plantas', plantaId);
+    state.plantasDisponibles = state.plantasDisponibles.filter(function(p) { return p.id !== plantaId; });
+    mostrarSelectorPlanta(state._pendingUser, state.plantasDisponibles);
+  } catch(e) { alert('Error al eliminar: ' + e.message); }
 }
 
 async function crearNuevaPlantaSelector() {
