@@ -5560,11 +5560,23 @@ async function renderAdminGestores() {
   document.getElementById('page-admin-gestores').innerHTML = html;
 }
 
-function modalNuevoGestorAdmin() {
-  var body = '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="ng-nombre" placeholder="Ej: Juan García"></div>';
+async function modalNuevoGestorAdmin() {
+  var plantas = [];
+  try { plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'], order: 'nombre.asc' }); } catch(e) {}
+
+  var body = '<div class="form-group"><label class="form-label">Nombre completo</label><input class="form-input" id="ng-nombre" placeholder="Ej: Juan García"></div>';
   body += '<div class="form-group"><label class="form-label">Usuario <span style="color:var(--text3);font-weight:400">(para el login)</span></label><input class="form-input" id="ng-username" placeholder="Ej: j.garcia"></div>';
-  body += '<div class="form-group"><label class="form-label">Email <span style="color:var(--text3);font-weight:400">(opcional, para contacto)</span></label><input class="form-input" id="ng-email" type="email" placeholder="Opcional"></div>';
-  body += '<div class="form-group"><label class="form-label">Máximo de plantas</label><input class="form-input" id="ng-max" type="number" value="1" min="1"></div>';
+  body += '<div class="form-group"><label class="form-label">Email <span style="color:var(--text3);font-weight:400">(opcional)</span></label><input class="form-input" id="ng-email" type="email" placeholder="Opcional"></div>';
+  body += '<div class="form-group"><label class="form-label">Plantas que gestionará</label>';
+  if (plantas.length === 0) {
+    body += '<div style="color:var(--text3);font-size:12px">No hay plantas creadas aún.</div>';
+  } else {
+    plantas.forEach(function(p) {
+      body += '<label style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer">';
+      body += '<input type="checkbox" value="' + p.id + '" class="ng-planta-check"> <span style="font-weight:600">' + p.nombre + '</span></label>';
+    });
+  }
+  body += '</div>';
   body += '<div class="alert alert-info" style="margin-top:8px"><span>El gestor entrará sin contraseña la primera vez y creará la suya propia.</span></div>';
   openModal('Crear gestor', body,
     '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
@@ -5575,19 +5587,36 @@ async function crearGestorAdmin() {
   var nombre = document.getElementById('ng-nombre').value.trim();
   var username = document.getElementById('ng-username').value.trim();
   if (!nombre || !username) { showToast('Nombre y usuario son obligatorios', 'error'); return; }
+
+  var plantasSeleccionadas = [];
+  document.querySelectorAll('.ng-planta-check:checked').forEach(function(ch) { plantasSeleccionadas.push(ch.value); });
+
   try {
-    await sbInsert('gestores', {
+    // Insert gestor
+    var result = await sbInsert('gestores', {
       nombre: nombre,
       username: username,
       email: document.getElementById('ng-email').value.trim() || null,
-      max_plantas: parseInt(document.getElementById('ng-max').value) || 1,
       activo: true,
       rol: 'gestor',
       primer_login: true,
       password_hash: ''
     });
-    closeModal(); showToast('Gestor creado. Usuario: ' + username, 'success'); renderAdminGestores();
-  } catch(e) { showToast('Error: ' + (e.message || 'Usuario ya existe'), 'error'); }
+
+    // Get the new gestor ID
+    var newGestor = await sbQuery('gestores', { select: 'id', filters: ['username=eq.' + username] });
+    if (newGestor && newGestor[0]) {
+      var gestorId = newGestor[0].id;
+      // Assign plants
+      for (var i = 0; i < plantasSeleccionadas.length; i++) {
+        try { await sbInsert('gestor_plantas', { gestor_id: gestorId, planta_id: plantasSeleccionadas[i] }); } catch(ep) {}
+      }
+    }
+
+    closeModal();
+    showToast('Gestor creado. Usuario: ' + username + (plantasSeleccionadas.length > 0 ? ' · ' + plantasSeleccionadas.length + ' planta(s) asignada(s)' : ''), 'success');
+    renderAdminGestores();
+  } catch(e) { showToast('Error: ' + (e.message.includes('unique') || e.message.includes('duplicate') ? 'Ese usuario ya existe' : e.message), 'error'); }
 }
 
 function modalEditarGestorAdmin(gestorId) {
@@ -5597,7 +5626,6 @@ function modalEditarGestorAdmin(gestorId) {
     var body = '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="eg-nombre" value="' + (g.nombre || '') + '"></div>';
     body += '<div class="form-group"><label class="form-label">Usuario</label><input class="form-input" id="eg-username" value="' + (g.username || '') + '"></div>';
     body += '<div class="form-group"><label class="form-label">Email</label><input class="form-input" id="eg-email" value="' + (g.email || '') + '"></div>';
-    body += '<div class="form-group"><label class="form-label">Máximo de plantas</label><input class="form-input" id="eg-max" type="number" value="' + (g.max_plantas || 1) + '" min="1"></div>';
     body += '<div class="form-group"><label class="form-label">Estado</label><select class="form-input" id="eg-activo">';
     body += '<option value="true"' + (g.activo !== false ? ' selected' : '') + '>Activo</option>';
     body += '<option value="false"' + (g.activo === false ? ' selected' : '') + '>Inactivo (bloqueado)</option></select></div>';
@@ -5614,7 +5642,6 @@ async function guardarGestorAdmin(gestorId) {
       nombre: document.getElementById('eg-nombre').value.trim(),
       username: document.getElementById('eg-username').value.trim(),
       email: document.getElementById('eg-email').value.trim() || null,
-      max_plantas: parseInt(document.getElementById('eg-max').value) || 1,
       activo: document.getElementById('eg-activo').value === 'true'
     });
     closeModal(); showToast('Gestor actualizado', 'success'); renderAdminGestores();
