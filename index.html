@@ -5613,7 +5613,14 @@ async function crearGestorAdmin() {
     closeModal();
     showToast('Gestor creado. Usuario: ' + username + (plantasSeleccionadas.length > 0 ? ' · ' + plantasSeleccionadas.length + ' planta(s) asignada(s)' : ''), 'success');
     renderAdminGestores();
-  } catch(e) { showToast('Error: ' + (e.message.includes('unique') || e.message.includes('duplicate') ? 'Ese usuario ya existe' : e.message), 'error'); }
+  } catch(e) {
+    var msg = e.message || '';
+    if (msg.includes('409') || msg.includes('unique') || msg.includes('duplicate') || msg.includes('conflict')) {
+      showToast('Ese nombre de usuario ya existe. Elige otro.', 'error');
+    } else {
+      showToast('Error: ' + msg, 'error');
+    }
+  }
 }
 
 function modalEditarGestorAdmin(gestorId) {
