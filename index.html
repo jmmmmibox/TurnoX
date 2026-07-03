@@ -958,10 +958,6 @@ td.col-descubierto { background: #FEF2F2 !important; }
           <button type="button" class="pass-toggle" onclick="togglePass('r-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Nombre de tu empresa / planta</label>
-        <input type="text" class="form-input" id="r-planta" placeholder="Ej: Planta Huelva">
-      </div>
       <button class="btn-primary" onclick="registrarGestor()">Crear cuenta</button>
       <p style="text-align:center;font-size:12px;color:var(--text3);margin-top:12px">¿Ya tienes cuenta? <a href="#" onclick="switchLoginTab('gestor');return false" style="color:var(--primary-light)">Inicia sesión</a></p>
     </div>
@@ -1247,43 +1243,29 @@ async function registrarGestor() {
   var nombre = document.getElementById('r-nombre').value.trim();
   var email = document.getElementById('r-email').value.trim();
   var pass = document.getElementById('r-pass').value.trim();
-  var planta = document.getElementById('r-planta').value.trim();
   var errEl = document.getElementById('login-error');
   errEl.textContent = '';
 
   if (!nombre) { errEl.textContent = 'Indica tu nombre'; return; }
   if (!email || !email.includes('@')) { errEl.textContent = 'Email no válido'; return; }
   if (!pass || pass.length < 6) { errEl.textContent = 'La contraseña debe tener al menos 6 caracteres'; return; }
-  if (!planta) { errEl.textContent = 'Indica el nombre de tu empresa o planta'; return; }
 
   try {
-    // 1. Create user in Supabase Auth
     var r = await sbSignUp(email, pass);
-    if (r.error) { errEl.textContent = r.error.message || r.msg || 'Error en el registro'; return; }
-    if (!r.user && !r.id) { errEl.textContent = 'No se pudo crear el usuario. ¿Ya existe este email?'; return; }
+    if (r.error) { errEl.textContent = r.error.message || 'Error en el registro'; return; }
+    if (!r.user && !r.id) { errEl.textContent = '¿Ya existe una cuenta con este email?'; return; }
 
     authToken = r.access_token;
     var userId = r.user ? r.user.id : r.id;
 
-    // 2. Create planta
-    await sbInsert('plantas', { nombre: planta, activa: true });
-    var nuevaPlanta = await sbQuery('plantas', { select: '*', order: 'created_at.desc', limit: 1 });
-    var plantaId = nuevaPlanta[0].id;
+    // Create gestor row
+    try { await sbInsert('gestores', { id: userId, nombre: nombre, email: email, rol: 'gestor', activo: true }); } catch(eg) {}
 
-    // 3. Create gestor row linked to Auth user
-    try {
-      await sbInsert('gestores', { id: userId, nombre: nombre, email: email, rol: 'gestor', activo: true });
-    } catch(eg) {}
-
-    // 4. Assign plant
-    await sbInsert('gestor_plantas', { gestor_id: userId, planta_id: plantaId });
-
-    // 5. Enter app
-    PLANTA_ID = plantaId;
-    state.plantasDisponibles = [nuevaPlanta[0]];
+    // Enter app with no plants - will show create first plant screen
+    state.plantasDisponibles = [];
     var user = { tipo: 'gestor', id: userId, nombre: nombre, email: email };
     state._pendingUser = user;
-    enterApp(user);
+    mostrarSelectorPlanta(user, []);
 
   } catch(e) {
     errEl.textContent = 'Error: ' + (e.message || 'Inténtalo de nuevo');
@@ -1310,21 +1292,17 @@ async function loginGestor() {
     var gestorRows = await sbQuery('gestores', { select: '*', filters: ['id=eq.' + userId] });
     var nombre = gestorRows && gestorRows[0] ? gestorRows[0].nombre : email.split('@')[0];
 
-    // Get assigned plants
-    var gp = await sbQuery('gestor_plantas', { select: 'planta_id', filters: ['gestor_id=eq.' + userId] });
-    var plantaIds = (gp || []).map(function(g) { return g.planta_id; });
-    var todasPlantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] }) || [];
-    var plantas = todasPlantas.filter(function(p) { return plantaIds.includes(p.id); });
+    // Get plants by gestor_id
+    var plantas = await sbQuery('plantas', { select: '*', filters: ['gestor_id=eq.' + userId, 'activa=eq.true'] }) || [];
 
     state.plantasDisponibles = plantas;
     var user = { tipo: 'gestor', id: userId, nombre: nombre, email: email };
     state._pendingUser = user;
 
     if (plantas.length === 0) {
-      errEl.textContent = 'No tienes plantas asignadas. Contacta con soporte.';
-      return;
-    }
-    if (plantas.length === 1) {
+      // No plants yet → show selector (will show create first plant)
+      mostrarSelectorPlanta(user, []);
+    } else if (plantas.length === 1) {
       PLANTA_ID = plantas[0].id;
       enterApp(user);
     } else {
@@ -1343,25 +1321,34 @@ function mostrarSelectorPlanta(user, plantas) {
   sel.style.display = 'flex';
   var html = '<div class="login-box" style="max-width:500px">';
   html += '<div class="login-logo"><div class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>';
-  html += '<h1>TurnoX</h1><p>Selecciona la planta</p></div>';
-  html += '<div style="display:flex;flex-direction:column;gap:8px">';
-  plantas.forEach(function(p) {
-    html += '<button class="btn btn-outline w-full" style="padding:14px;font-size:14px;justify-content:space-between" onclick="seleccionarPlanta(\'' + p.id + '\')">';
-    html += '<span style="font-weight:600">' + p.nombre + '</span>';
-    html += '<span style="font-size:12px;color:var(--text3)">' + (p.descripcion || '') + '</span></button>';
-  });
+  html += '<h1>TurnoX</h1>';
 
-  // Allow creating a new plant if < 3 plants
-  if (plantas.length < 3) {
-    html += '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
-    html += '<div id="nueva-planta-form" style="display:none;flex-direction:column;gap:8px;margin-bottom:8px">';
-    html += '<input class="form-input" id="np-nombre" placeholder="Nombre de la nueva planta">';
-    html += '<div style="display:flex;gap:8px">';
-    html += '<button class="btn btn-blue" style="flex:1" onclick="crearNuevaPlantaSelector()">Crear</button>';
-    html += '<button class="btn btn-ghost" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'none\'">Cancelar</button>';
-    html += '</div></div>';
-    html += '<button class="btn btn-outline w-full" style="border-style:dashed;color:var(--text2)" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'flex\'">+ Crear nueva planta</button>';
-    html += '</div>';
+  if (plantas.length === 0) {
+    // No plants yet - show create first plant
+    html += '<p>Crea tu primera planta para empezar</p></div>';
+    html += '<div style="display:flex;flex-direction:column;gap:8px">';
+    html += '<div class="form-group"><label class="form-label">Nombre de tu planta / empresa</label>';
+    html += '<input class="form-input" id="np-nombre" placeholder="Ej: Planta Huelva"></div>';
+    html += '<button class="btn btn-blue w-full" style="padding:14px" onclick="crearNuevaPlantaSelector()">Crear planta y entrar</button>';
+  } else {
+    html += '<p>Selecciona la planta</p></div>';
+    html += '<div style="display:flex;flex-direction:column;gap:8px">';
+    plantas.forEach(function(p) {
+      html += '<button class="btn btn-outline w-full" style="padding:14px;font-size:14px;justify-content:space-between" onclick="seleccionarPlanta(\'' + p.id + '\')">';
+      html += '<span style="font-weight:600">' + p.nombre + '</span></button>';
+    });
+    // Allow creating more plants if < 3
+    if (plantas.length < 3) {
+      html += '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
+      html += '<div id="nueva-planta-form" style="display:none;flex-direction:column;gap:8px;margin-bottom:8px">';
+      html += '<input class="form-input" id="np-nombre" placeholder="Nombre de la nueva planta">';
+      html += '<div style="display:flex;gap:8px">';
+      html += '<button class="btn btn-blue" style="flex:1" onclick="crearNuevaPlantaSelector()">Crear</button>';
+      html += '<button class="btn btn-ghost" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'none\'">Cancelar</button>';
+      html += '</div></div>';
+      html += '<button class="btn btn-outline w-full" style="border-style:dashed;color:var(--text2)" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'flex\'">+ Crear nueva planta</button>';
+      html += '</div>';
+    }
   }
 
   html += '</div>';
@@ -1374,14 +1361,18 @@ function mostrarSelectorPlanta(user, plantas) {
 async function crearNuevaPlantaSelector() {
   var nombre = document.getElementById('np-nombre') ? document.getElementById('np-nombre').value.trim() : '';
   if (!nombre) { alert('Indica el nombre de la planta'); return; }
+  var userId = state._pendingUser ? state._pendingUser.id : null;
+  if (!userId) { alert('Error: sesión no válida'); return; }
   try {
-    var result = await sbInsert('plantas', { nombre: nombre, activa: true });
-    // Get the new plant id
-    var nuevaPlanta = await sbQuery('plantas', { select: '*', filters: ['nombre=eq.' + nombre], order: 'created_at.desc', limit: 1 });
-    if (nuevaPlanta && nuevaPlanta[0]) {
-      state.plantasDisponibles.push(nuevaPlanta[0]);
+    await sbInsert('plantas', { nombre: nombre, activa: true, gestor_id: userId });
+    var plantas = await sbQuery('plantas', { select: '*', filters: ['gestor_id=eq.' + userId, 'activa=eq.true'] }) || [];
+    state.plantasDisponibles = plantas;
+    if (plantas.length === 1) {
+      PLANTA_ID = plantas[0].id;
+      enterApp(state._pendingUser);
+    } else {
+      mostrarSelectorPlanta(state._pendingUser, plantas);
     }
-    mostrarSelectorPlanta(state._pendingUser, state.plantasDisponibles);
   } catch(e) { alert('Error: ' + e.message); }
 }
 
