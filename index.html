@@ -1244,14 +1244,6 @@ async function loginGestor() {
         }
       } catch(esa) {}
 
-      // Ensure gestor row exists for notifications
-      try {
-        var existG = await sbQuery('gestores', { select: 'id', filters: ['id=eq.' + userId] });
-        if (!existG || existG.length === 0) {
-          await sbInsert('gestores', { id: userId, nombre: 'Super Admin', email: input, rol: 'superadmin' });
-        }
-      } catch(eg) {}
-
       // Get all plants
       var plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] }) || [];
       state.plantasDisponibles = plantas;
