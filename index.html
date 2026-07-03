@@ -1679,11 +1679,11 @@ function buildNav() {
   } else {
     items = NAV_EMPLEADO;
   }
-  // If super admin is in a plant, add "Cambiar planta" at the end
-  if (state.isSuperAdmin && !state.user.modoAdmin && state.plantasDisponibles.length > 1) {
+  // Show "Mis plantas" always for gestores
+  if (!state.user.modoAdmin && (state.user.tipo === 'gestor' || state.user.tipo === 'superadmin')) {
     items = items.concat([
-      { separator: 'Admin' },
-      { id: 'cambiar-planta', label: 'Cambiar planta', icon: 'grid' },
+      { separator: '' },
+      { id: 'cambiar-planta', label: state.plantasDisponibles.length > 1 ? 'Cambiar planta' : 'Mis plantas', icon: 'grid' },
     ]);
   }
   nav.innerHTML = items.map(item => {
