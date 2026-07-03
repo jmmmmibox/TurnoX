@@ -5536,7 +5536,7 @@ async function renderAdminGestores() {
   html += '<button class="btn btn-blue" onclick="modalNuevoGestorAdmin()">+ Crear gestor</button></div>';
 
   html += '<div class="card"><div style="overflow:auto"><table class="emp-table"><thead><tr>';
-  html += '<th>Nombre</th><th>Usuario</th><th>Email</th><th>Plantas asignadas</th><th>Max. plantas</th><th>Estado</th><th></th>';
+  html += '<th>Nombre</th><th>Usuario</th><th>Plantas asignadas</th><th>Estado</th><th></th>';
   html += '</tr></thead><tbody>';
   gestores.forEach(function(g) {
     var gps = gestorPlantas.filter(function(gp) { return gp.gestor_id === g.id; });
@@ -5544,12 +5544,10 @@ async function renderAdminGestores() {
     html += '<tr>';
     html += '<td style="font-weight:600">' + (g.nombre || '—') + '</td>';
     html += '<td><code style="font-size:12px;background:var(--bg);padding:2px 6px;border-radius:4px">' + (g.username || '—') + '</code></td>';
-    html += '<td style="font-size:12px">' + (g.email || '—') + '</td>';
     html += '<td><div style="display:flex;gap:4px;flex-wrap:wrap">';
     if (plantaNames.length === 0) html += '<span style="color:var(--text3)">Ninguna</span>';
     plantaNames.forEach(function(n) { html += '<span style="font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px">' + n + '</span>'; });
     html += '</div></td>';
-    html += '<td style="font-weight:600">' + (g.max_plantas || 1) + '</td>';
     html += '<td><span class="status-badge ' + (g.activo !== false ? 'open' : 'closed') + '">' + (g.activo !== false ? 'Activo' : 'Inactivo') + '</span></td>';
     html += '<td><div style="display:flex;gap:4px">';
     html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarGestorAdmin(\'' + g.id + '\')">✎</button>';
@@ -5566,7 +5564,6 @@ async function modalNuevoGestorAdmin() {
 
   var body = '<div class="form-group"><label class="form-label">Nombre completo</label><input class="form-input" id="ng-nombre" placeholder="Ej: Juan García"></div>';
   body += '<div class="form-group"><label class="form-label">Usuario <span style="color:var(--text3);font-weight:400">(para el login)</span></label><input class="form-input" id="ng-username" placeholder="Ej: j.garcia"></div>';
-  body += '<div class="form-group"><label class="form-label">Email <span style="color:var(--text3);font-weight:400">(opcional)</span></label><input class="form-input" id="ng-email" type="email" placeholder="Opcional"></div>';
   body += '<div class="form-group"><label class="form-label">Plantas que gestionará</label>';
   if (plantas.length === 0) {
     body += '<div style="color:var(--text3);font-size:12px">No hay plantas creadas aún.</div>';
@@ -5596,7 +5593,7 @@ async function crearGestorAdmin() {
     await sbInsert('gestores', {
       nombre: nombre,
       username: username,
-      email: document.getElementById('ng-email').value.trim() || null,
+      email: '',
       activo: true,
       rol: 'gestor',
       primer_login: true,
@@ -5625,7 +5622,6 @@ function modalEditarGestorAdmin(gestorId) {
     var g = rows[0];
     var body = '<div class="form-group"><label class="form-label">Nombre</label><input class="form-input" id="eg-nombre" value="' + (g.nombre || '') + '"></div>';
     body += '<div class="form-group"><label class="form-label">Usuario</label><input class="form-input" id="eg-username" value="' + (g.username || '') + '"></div>';
-    body += '<div class="form-group"><label class="form-label">Email</label><input class="form-input" id="eg-email" value="' + (g.email || '') + '"></div>';
     body += '<div class="form-group"><label class="form-label">Estado</label><select class="form-input" id="eg-activo">';
     body += '<option value="true"' + (g.activo !== false ? ' selected' : '') + '>Activo</option>';
     body += '<option value="false"' + (g.activo === false ? ' selected' : '') + '>Inactivo (bloqueado)</option></select></div>';
@@ -5641,7 +5637,6 @@ async function guardarGestorAdmin(gestorId) {
     await sbUpdate('gestores', gestorId, {
       nombre: document.getElementById('eg-nombre').value.trim(),
       username: document.getElementById('eg-username').value.trim(),
-      email: document.getElementById('eg-email').value.trim() || null,
       activo: document.getElementById('eg-activo').value === 'true'
     });
     closeModal(); showToast('Gestor actualizado', 'success'); renderAdminGestores();
