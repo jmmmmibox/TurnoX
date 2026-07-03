@@ -1655,10 +1655,10 @@ function buildNav() {
   } else {
     items = NAV_EMPLEADO;
   }
-  // If super admin is in a plant, add "Cambiar planta" at the end
-  if (state.isSuperAdmin && !state.user.modoAdmin && state.plantasDisponibles.length > 1) {
+  // Show "Cambiar planta" for any user (gestor or superadmin) with multiple plants
+  if (!state.user.modoAdmin && state.plantasDisponibles.length > 1) {
     items = items.concat([
-      { separator: 'Admin' },
+      { separator: '' },
       { id: 'cambiar-planta', label: 'Cambiar planta', icon: 'grid' },
     ]);
   }
