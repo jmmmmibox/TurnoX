@@ -1807,13 +1807,7 @@ function renderDashboard() {
   var sinAreas = !state.areas || state.areas.length === 0;
   var sinLetras = !state.letras || state.letras.length === 0;
   if (sinAreas || sinLetras) {
-    var html = '<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:12px;padding:24px;text-align:center;max-width:500px;margin:40px auto">';
-    html += '<div style="font-size:32px;margin-bottom:12px">⚙️</div>';
-    html += '<div style="font-size:16px;font-weight:700;margin-bottom:8px">Esta planta aún no está configurada</div>';
-    html += '<div style="font-size:13px;color:var(--text2);margin-bottom:20px">Configura las áreas, letras y ciclos de turno para empezar a gestionar.</div>';
-    html += '<button class="btn btn-blue" onclick="navigateTo(\'configuracion\')">Ir a Configuración</button>';
-    html += '</div>';
-    document.getElementById('page-dashboard').innerHTML = html;
+    document.getElementById('page-dashboard').innerHTML = '<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:12px;padding:24px;text-align:center;max-width:500px;margin:40px auto"><div style="font-size:32px;margin-bottom:12px">⚙️</div><div style="font-size:16px;font-weight:700;margin-bottom:8px">Esta planta aún no está configurada</div><div style="font-size:13px;color:var(--text2);margin-bottom:20px">Configura las áreas, letras y ciclos de turno para empezar a gestionar.</div><button class="btn btn-blue" onclick="navigateTo(\'configuracion\')">Ir a Configuración</button></div>';
     return;
   }
 
