@@ -2432,6 +2432,7 @@ async function crearRonda() {
   try {
     await sbInsert('vacaciones_rondas', {
       planta_id: PLANTA_ID,
+      año: new Date().getFullYear(),
       numero_ronda: numero,
       nombre: nombre,
       descripcion: descripcion,
