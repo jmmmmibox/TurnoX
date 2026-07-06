@@ -2402,6 +2402,88 @@ function filtrarEmpleados(q) {
 // =====================================================================
 // VACACIONES
 // =====================================================================
+function modalNuevaRonda() {
+  var nextNum = (state.rondas ? state.rondas.length : 0) + 1;
+  var body = '<div class="form-group"><label class="form-label">Número de ronda</label>';
+  body += '<input type="number" class="form-input" id="nr-numero" value="' + nextNum + '" min="1" max="10"></div>';
+  body += '<div class="form-group"><label class="form-label">Nombre</label>';
+  body += '<input class="form-input" id="nr-nombre" placeholder="Ej: Vacaciones principales"></div>';
+  body += '<div class="form-group"><label class="form-label">Descripción</label>';
+  body += '<input class="form-input" id="nr-descripcion" placeholder="Ej: Días consecutivos obligatorios"></div>';
+  body += '<div class="form-group"><label class="form-label">Días</label>';
+  body += '<input type="number" class="form-input" id="nr-dias" value="12" min="1"></div>';
+  body += '<div class="form-group"><label class="form-label">Tipo</label>';
+  body += '<select class="form-input" id="nr-tipo">';
+  body += '<option value="consecutivos">Consecutivos (R1, R2)</option>';
+  body += '<option value="sueltos">Días sueltos (R3)</option>';
+  body += '</select></div>';
+  openModal('Crear ronda de vacaciones', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="crearRonda()">Crear</button>');
+}
+
+async function crearRonda() {
+  var numero = parseInt(document.getElementById('nr-numero').value);
+  var nombre = document.getElementById('nr-nombre').value.trim();
+  var descripcion = document.getElementById('nr-descripcion').value.trim();
+  var dias = parseInt(document.getElementById('nr-dias').value);
+  var tipo = document.getElementById('nr-tipo').value;
+  if (!nombre || !dias) { showToast('Nombre y días son obligatorios', 'error'); return; }
+  try {
+    await sbInsert('vacaciones_rondas', {
+      planta_id: PLANTA_ID,
+      numero_ronda: numero,
+      nombre: nombre,
+      descripcion: descripcion,
+      dias: dias,
+      tipo: tipo,
+      abierta: false
+    });
+    closeModal();
+    showToast('Ronda creada', 'success');
+    renderVacaciones();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalEditarRonda(rondaId) {
+  sbQuery('vacaciones_rondas', { select: '*', filters: ['id=eq.' + rondaId] }).then(function(rows) {
+    if (!rows || rows.length === 0) return;
+    var r = rows[0];
+    var body = '<div class="form-group"><label class="form-label">Nombre</label>';
+    body += '<input class="form-input" id="er-nombre" value="' + (r.nombre || '') + '"></div>';
+    body += '<div class="form-group"><label class="form-label">Descripción</label>';
+    body += '<input class="form-input" id="er-descripcion" value="' + (r.descripcion || '') + '"></div>';
+    body += '<div class="form-group"><label class="form-label">Días</label>';
+    body += '<input type="number" class="form-input" id="er-dias" value="' + (r.dias || 12) + '" min="1"></div>';
+    openModal('Editar ronda ' + r.numero_ronda, body,
+      '<button class="btn btn-red" onclick="eliminarRonda(\'' + rondaId + '\')">Eliminar</button><div style="flex:1"></div>' +
+      '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+      '<button class="btn btn-blue" onclick="guardarRonda(\'' + rondaId + '\')">Guardar</button>');
+  });
+}
+
+async function guardarRonda(rondaId) {
+  try {
+    await sbUpdate('vacaciones_rondas', rondaId, {
+      nombre: document.getElementById('er-nombre').value.trim(),
+      descripcion: document.getElementById('er-descripcion').value.trim(),
+      dias: parseInt(document.getElementById('er-dias').value)
+    });
+    closeModal(); showToast('Ronda actualizada', 'success'); renderVacaciones();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function eliminarRonda(rondaId) {
+  if (!confirm('¿Eliminar esta ronda? Se eliminarán también todas sus solicitudes.')) return;
+  try {
+    var sols = await sbQuery('vacaciones_solicitudes', { select: 'id', filters: ['ronda_id=eq.' + rondaId] });
+    for (var s of (sols || [])) try { await sbDelete('vacaciones_solicitudes', s.id); } catch(e) {}
+    await sbDelete('vacaciones_rondas', rondaId);
+    closeModal(); showToast('Ronda eliminada', 'success'); renderVacaciones();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
 // =====================================================================
 // VACACIONES (gestor)
 // =====================================================================
@@ -2409,18 +2491,6 @@ async function renderVacaciones() {
   let rondas = [], solicitudes = [], configLetras = [];
   try {
     rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'numero_ronda.asc' });
-
-    // Auto-create rondas if plant has none
-    if (!rondas || rondas.length === 0) {
-      var rondasDefault = [
-        { planta_id: PLANTA_ID, numero_ronda: 1, nombre: 'Vacaciones principales', descripcion: 'Días consecutivos', dias: 12, abierta: false },
-        { planta_id: PLANTA_ID, numero_ronda: 2, nombre: 'Vacaciones secundarias', descripcion: 'Días consecutivos', dias: 10, abierta: false },
-        { planta_id: PLANTA_ID, numero_ronda: 3, nombre: 'Días sueltos', descripcion: 'Días sueltos', dias: 4, abierta: false },
-      ];
-      for (var rd of rondasDefault) { try { await sbInsert('vacaciones_rondas', rd); } catch(er) {} }
-      rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'numero_ronda.asc' });
-    }
-
     var empIds = state.empleados.map(function(e) { return e.id; });
     solicitudes = await sbQuery('vacaciones_solicitudes', { select: '*', order: 'created_at.desc', limit: 100 });
     solicitudes = solicitudes.filter(function(s) { return empIds.includes(s.empleado_id); });
@@ -2430,7 +2500,20 @@ async function renderVacaciones() {
   state.vacConfigLetras = configLetras || [];
   const hoy = todayStr();
 
-  let html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px"><h2 style="font-size:15px;font-weight:600">Vacaciones 2026</h2></div>';
+  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">';
+  html += '<h2 style="font-size:15px;font-weight:600">Vacaciones ' + new Date().getFullYear() + '</h2>';
+  html += '<button class="btn btn-blue" onclick="modalNuevaRonda()">+ Crear ronda</button></div>';
+
+  if (rondas.length === 0) {
+    html += '<div class="card"><div class="card-body" style="text-align:center;padding:40px">';
+    html += '<div style="font-size:32px;margin-bottom:12px">🌴</div>';
+    html += '<div style="font-weight:600;margin-bottom:8px">Sin rondas de vacaciones</div>';
+    html += '<div style="font-size:13px;color:var(--text2);margin-bottom:16px">Crea las rondas de vacaciones para que los empleados puedan solicitar sus períodos.</div>';
+    html += '<button class="btn btn-blue" onclick="modalNuevaRonda()">+ Crear primera ronda</button>';
+    html += '</div></div>';
+    document.getElementById('page-vacaciones').innerHTML = html;
+    return;
+  }
 
   // RONDAS
   rondas.forEach(r => {
@@ -2442,6 +2525,7 @@ async function renderVacaciones() {
     html += '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + (r.descripcion || '') + ' · ' + r.dias + ' días ' + (r.numero_ronda <= 2 ? 'consecutivos' : 'sueltos') + '</div></div>';
     html += '<div style="display:flex;gap:6px;align-items:center">';
     html += '<span class="status-badge ' + (r.abierta ? 'open' : 'closed') + '">' + (r.abierta ? 'Abierta' : 'Cerrada') + '</span>';
+    html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarRonda(\'' + r.id + '\')">✎</button>';
     html += '<button class="btn btn-sm ' + (r.abierta ? 'btn-red' : 'btn-green') + '" onclick="toggleRonda(\'' + r.id + '\',' + r.abierta + ')">' + (r.abierta ? 'Cerrar' : 'Abrir') + '</button>';
     html += '</div></div>';
 
