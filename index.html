@@ -2409,6 +2409,18 @@ async function renderVacaciones() {
   let rondas = [], solicitudes = [], configLetras = [];
   try {
     rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'numero_ronda.asc' });
+
+    // Auto-create rondas if plant has none
+    if (!rondas || rondas.length === 0) {
+      var rondasDefault = [
+        { planta_id: PLANTA_ID, numero_ronda: 1, nombre: 'Vacaciones principales', descripcion: 'Días consecutivos', dias: 12, abierta: false },
+        { planta_id: PLANTA_ID, numero_ronda: 2, nombre: 'Vacaciones secundarias', descripcion: 'Días consecutivos', dias: 10, abierta: false },
+        { planta_id: PLANTA_ID, numero_ronda: 3, nombre: 'Días sueltos', descripcion: 'Días sueltos', dias: 4, abierta: false },
+      ];
+      for (var rd of rondasDefault) { try { await sbInsert('vacaciones_rondas', rd); } catch(er) {} }
+      rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'numero_ronda.asc' });
+    }
+
     var empIds = state.empleados.map(function(e) { return e.id; });
     solicitudes = await sbQuery('vacaciones_solicitudes', { select: '*', order: 'created_at.desc', limit: 100 });
     solicitudes = solicitudes.filter(function(s) { return empIds.includes(s.empleado_id); });
