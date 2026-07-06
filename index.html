@@ -1942,8 +1942,11 @@ async function cargarPendientesDash() {
   if (!container) return;
   try {
     var pendDL = await sbQuery('solicitudes_dias_libres', { select: 'id', filters: ['estado=eq.pendiente'] });
-    var pendVac = await sbQuery('vacaciones_solicitudes', { select: 'id', filters: ['estado=eq.pendiente'] });
-    var pendInt = await sbQuery('intercambios', { select: 'id', filters: ['estado=eq.pendiente'] });
+    var empIdsDash = state.empleados.map(function(e) { return e.id; });
+    var allPendVac = await sbQuery('vacaciones_solicitudes', { select: 'id,empleado_id', filters: ['estado=eq.pendiente'] });
+    var pendVac = (allPendVac || []).filter(function(s) { return empIdsDash.includes(s.empleado_id); });
+    var allPendInt = await sbQuery('intercambios', { select: 'id,solicitante_id', filters: ['estado=eq.pendiente'] });
+    var pendInt = (allPendInt || []).filter(function(ic) { return empIdsDash.includes(ic.solicitante_id); });
 
     var dlCount = pendDL ? pendDL.length : 0;
     var vacCount = pendVac ? pendVac.length : 0;
@@ -2406,7 +2409,9 @@ async function renderVacaciones() {
   let rondas = [], solicitudes = [], configLetras = [];
   try {
     rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'numero_ronda.asc' });
+    var empIds = state.empleados.map(function(e) { return e.id; });
     solicitudes = await sbQuery('vacaciones_solicitudes', { select: '*', order: 'created_at.desc', limit: 100 });
+    solicitudes = solicitudes.filter(function(s) { return empIds.includes(s.empleado_id); });
     configLetras = await sbQuery('vacaciones_config_letra', { select: '*', order: 'orden.asc' });
   } catch (e) { console.error(e); }
 
@@ -2580,7 +2585,7 @@ async function aprobarTodasPendientes() {
 // =====================================================================
 async function renderIntercambios() {
   let intercambios = [];
-  try { intercambios = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 30 }); } catch (e) {}
+  try { var allIc = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 100 }); var empIdsIc = state.empleados.map(function(e) { return e.id; }); intercambios = allIc.filter(function(ic) { return empIdsIc.includes(ic.solicitante_id) || empIdsIc.includes(ic.receptor_id); }); } catch (e) {}
 
   let html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px">';
   html += '<h2 style="font-size:15px;font-weight:600">Intercambios de turno</h2></div>';
@@ -2692,8 +2697,7 @@ async function renderDiasLibres() {
   if (!state.dlTab) state.dlTab = 'pendientes';
 
   var solicitudes = [];
-  try { solicitudes = await sbQuery('solicitudes_dias_libres', { select: '*', order: 'created_at.desc', limit: 100 }); } catch(e) {}
-  if (PLANTA_ID) solicitudes = solicitudes.filter(function(s) { return s.planta_id === PLANTA_ID; });
+  try { var allDL = await sbQuery('solicitudes_dias_libres', { select: '*', order: 'created_at.desc', limit: 100 }); var empIdsDL = state.empleados.map(function(e) { return e.id; }); solicitudes = allDL.filter(function(s) { return empIdsDL.includes(s.empleado_id); }); } catch(e) {}
 
   var pendientes = solicitudes.filter(function(s) { return s.estado === 'pendiente'; });
   var resueltas = solicitudes.filter(function(s) { return s.estado !== 'pendiente'; });
@@ -3167,7 +3171,7 @@ async function eliminarIntercambio(icId, solId, recId, fechaSol, fechaRec) {
 // =====================================================================
 async function renderAusencias() {
   let ausencias = [];
-  try { ausencias = await sbQuery('ausencias', { select: '*', order: 'fecha_inicio.desc', limit: 100 }); } catch (e) {}
+  try { var allAus = await sbQuery('ausencias', { select: '*', order: 'fecha_inicio.desc', limit: 100 }); var empIdsAus = state.empleados.map(function(e) { return e.id; }); ausencias = allAus.filter(function(a) { return empIdsAus.includes(a.empleado_id); }); } catch (e) {}
 
   if (!state.ausTab) state.ausTab = 'activas';
 
