@@ -3628,8 +3628,10 @@ function renderConfiguracion() {
       html += '<span class="festivo-name">' + f.nombre + '</span>';
       html += '<span class="festivo-ambito ambito-' + (f.ambito || 'nacional') + '">' + (f.ambito || 'nacional') + '</span>';
       html += '</div>';
-      html += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarFestivo(\'' + f.id + '\')">Eliminar</button>';
-      html += '</div>';
+      html += '<div style="display:flex;gap:4px">';
+      html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarFestivo(\'' + f.id + '\')">✎</button>';
+      html += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarFestivo(\'' + f.id + '\')">✕</button>';
+      html += '</div></div>';
     });
     html += '</div></div>';
   }
@@ -4850,6 +4852,38 @@ async function crearEmpleado() {
     renderEmpleados();
     showToast('Empleado creado', 'success');
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalEditarFestivo(id) {
+  var f = state.festivos.find(function(x) { return x.id === id; });
+  if (!f) return;
+  var body = '<div class="form-group"><label class="form-label">Fecha</label>';
+  body += '<input type="date" class="form-input" id="ef-fecha" value="' + f.fecha + '"></div>';
+  body += '<div class="form-group"><label class="form-label">Nombre</label>';
+  body += '<input class="form-input" id="ef-nombre" value="' + f.nombre + '"></div>';
+  body += '<div class="form-group"><label class="form-label">Ámbito</label>';
+  body += '<select class="form-input" id="ef-ambito">';
+  ['nacional','regional','local'].forEach(function(a) {
+    body += '<option value="' + a + '"' + (f.ambito === a ? ' selected' : '') + '>' + a + '</option>';
+  });
+  body += '</select></div>';
+  openModal('Editar festivo', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="guardarFestivo(\'' + id + '\')">Guardar</button>');
+}
+
+async function guardarFestivo(id) {
+  var fecha = document.getElementById('ef-fecha').value;
+  var nombre = document.getElementById('ef-nombre').value.trim();
+  if (!fecha || !nombre) { showToast('Campos obligatorios', 'error'); return; }
+  try {
+    await sbUpdate('festivos', id, { fecha: fecha, nombre: nombre, ambito: document.getElementById('ef-ambito').value });
+    var idx = state.festivos.findIndex(function(f) { return f.id === id; });
+    if (idx >= 0) { state.festivos[idx].fecha = fecha; state.festivos[idx].nombre = nombre; }
+    closeModal();
+    showToast('Festivo actualizado', 'success');
+    renderConfiguracion();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 function modalNuevoFestivo() {
