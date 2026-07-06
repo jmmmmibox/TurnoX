@@ -5283,7 +5283,13 @@ async function guardarTodosCiclos() {
     const id = el.getAttribute('data-ciclo-id');
     const field = el.getAttribute('data-field');
     if (!cambios[id]) cambios[id] = {};
-    cambios[id][field] = el.value;
+    var val = el.value;
+    // Convert dias_trabajo_mes to integer or null
+    if (field === 'dias_trabajo_mes') {
+      cambios[id][field] = val && val !== '' ? parseInt(val) : null;
+    } else {
+      cambios[id][field] = val;
+    }
   });
 
   try {
