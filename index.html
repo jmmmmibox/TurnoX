@@ -5659,65 +5659,105 @@ async function restaurarBackup(input) {
       if (!backup.version || !backup.planta_id) { showToast('Archivo no válido', 'error'); return; }
       showToast('Restaurando backup...');
 
-      var oldId = backup.planta_id;
-      var newId = PLANTA_ID;
-      var sameId = oldId === newId;
+      var oldPlantaId = backup.planta_id;
+      var newPlantaId = PLANTA_ID;
+      var sameId = oldPlantaId === newPlantaId;
 
-      function fix(o) {
-        var r = Object.assign({}, o);
-        if (!sameId && r.planta_id === oldId) r.planta_id = newId;
-        return r;
+      // UUID generator
+      function newUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          var r = Math.random()*16|0, v = c=='x'?r:(r&0x3|0x8);
+          return v.toString(16);
+        });
       }
 
-      // 1. Delete all current plant data (reverse dependency order)
-      var empIds = (await sbQuery('empleados', {select:'id', filters:['planta_id=eq.'+newId]})||[]).map(function(e){return e.id;});
+      // 1. Delete all current plant data
+      var empIds = (await sbQuery('empleados', {select:'id',filters:['planta_id=eq.'+newPlantaId]})||[]).map(function(e){return e.id;});
       for (var eid of empIds) {
-        for (var tbl of ['notificaciones','solicitudes_dias_libres','ausencias','vacaciones_solicitudes','turnos','polivalencias']) {
-          try { var rr=await sbQuery(tbl,{select:'id',filters:['empleado_id=eq.'+eid]}); for(var x of(rr||[])) try{await sbDelete(tbl,x.id);}catch(e){} } catch(e){}
+        for (var tbl of ['notificaciones','solicitudes_dias_libres','ausencias','vacaciones_solicitudes','turnos','polivalencias','intercambios']) {
+          try{var rr=await sbQuery(tbl,{select:'id',filters:['empleado_id=eq.'+eid]});for(var x of(rr||[]))try{await sbDelete(tbl,x.id);}catch(ex){}}catch(ex){}
         }
-        try { await sbDelete('empleados', eid); } catch(e){}
+        try{var ri=await sbQuery('intercambios',{select:'id',filters:['receptor_id=eq.'+eid]});for(var x of(ri||[]))try{await sbDelete('intercambios',x.id);}catch(ex){}}catch(ex){}
+        try{await sbDelete('empleados',eid);}catch(ex){}
       }
-      // intercambios by receptor
-      for (var eid2 of empIds) {
-        try { var ri=await sbQuery('intercambios',{select:'id',filters:['receptor_id=eq.'+eid2]}); for(var x of(ri||[])) try{await sbDelete('intercambios',x.id);}catch(e){} } catch(e){}
+      var rIds=(await sbQuery('vacaciones_rondas',{select:'id',filters:['planta_id=eq.'+newPlantaId]})||[]).map(function(r){return r.id;});
+      for(var rid of rIds){
+        try{var vc=await sbQuery('vacaciones_config_letra',{select:'id',filters:['ronda_id=eq.'+rid]});for(var x of(vc||[]))try{await sbDelete('vacaciones_config_letra',x.id);}catch(ex){}}catch(ex){}
+        try{await sbDelete('vacaciones_rondas',rid);}catch(ex){}
       }
-      // rondas and their configs
-      var rIds=(await sbQuery('vacaciones_rondas',{select:'id',filters:['planta_id=eq.'+newId]})||[]).map(function(r){return r.id;});
-      for (var rid of rIds) {
-        try{var vc=await sbQuery('vacaciones_config_letra',{select:'id',filters:['ronda_id=eq.'+rid]});for(var x of(vc||[]))try{await sbDelete('vacaciones_config_letra',x.id);}catch(e){}}catch(e){}
-        try{await sbDelete('vacaciones_rondas',rid);}catch(e){}
+      var lIds=(await sbQuery('letras',{select:'id',filters:['planta_id=eq.'+newPlantaId]})||[]).map(function(l){return l.id;});
+      for(var lid of lIds){
+        try{var cc=await sbQuery('ciclos_config',{select:'id',filters:['letra_id=eq.'+lid]});for(var x of(cc||[]))try{await sbDelete('ciclos_config',x.id);}catch(ex){}}catch(ex){}
+        try{await sbDelete('letras',lid);}catch(ex){}
       }
-      // letras and their ciclos
-      var lIds=(await sbQuery('letras',{select:'id',filters:['planta_id=eq.'+newId]})||[]).map(function(l){return l.id;});
-      for (var lid of lIds) {
-        try{var cc=await sbQuery('ciclos_config',{select:'id',filters:['letra_id=eq.'+lid]});for(var x of(cc||[]))try{await sbDelete('ciclos_config',x.id);}catch(e){}}catch(e){}
-        try{await sbDelete('letras',lid);}catch(e){}
-      }
-      for (var tbl2 of ['areas','festivos','config_planta']) {
-        try{var tr=await sbQuery(tbl2,{select:'id',filters:['planta_id=eq.'+newId]});for(var x of(tr||[]))try{await sbDelete(tbl2,x.id);}catch(e){}}catch(e){}
+      for(var tbl2 of ['areas','festivos','config_planta']){
+        try{var tr=await sbQuery(tbl2,{select:'id',filters:['planta_id=eq.'+newPlantaId]});for(var x of(tr||[]))try{await sbDelete(tbl2,x.id);}catch(ex){}}catch(ex){}
       }
 
-      // 2. Insert in order, keeping original IDs
-      var steps = [
-        {key:'areas', fn:fix}, {key:'letras', fn:fix}, {key:'festivos', fn:fix},
-        {key:'config_planta', fn:fix}, {key:'ciclos_config', fn:function(o){return o;}},
-        {key:'vacaciones_rondas', fn:fix}, {key:'vacaciones_config_letra', fn:function(o){return o;}},
-        {key:'empleados', fn:fix}, {key:'polivalencias', fn:function(o){return o;}},
-        {key:'turnos', fn:function(o){return o;}}, {key:'vacaciones_solicitudes', fn:function(o){return o;}},
-        {key:'ausencias', fn:function(o){return o;}}, {key:'intercambios', fn:function(o){return o;}},
-        {key:'solicitudes_dias_libres', fn:fix}, {key:'notificaciones', fn:function(o){return o;}}
-      ];
+      // 2. If same plant → insert with original IDs
+      if (sameId) {
+        var steps = [
+          {key:'areas'}, {key:'letras'}, {key:'festivos'}, {key:'config_planta'},
+          {key:'ciclos_config'}, {key:'vacaciones_rondas'}, {key:'vacaciones_config_letra'},
+          {key:'empleados'}, {key:'polivalencias'}, {key:'turnos'},
+          {key:'vacaciones_solicitudes'}, {key:'ausencias'}, {key:'intercambios'},
+          {key:'solicitudes_dias_libres'}, {key:'notificaciones'}
+        ];
+        var inserted=0, errors=0;
+        for (var step of steps) {
+          for (var row of (backup[step.key]||[])) {
+            try { await sbInsert(step.key, row); inserted++; } catch(ei) { errors++; }
+          }
+        }
+        showToast('Restaurado: '+inserted+' registros. Recargando...', 'success');
+        setTimeout(function(){location.reload();},2000);
+        return;
+      }
+
+      // 3. Different plant → remap all IDs
+      var idMap = {}; // oldId -> newId
+      function remap(id) { return idMap[id] || id; }
+      function remapObj(o) {
+        var n = Object.assign({}, o);
+        if (n.id) { var nid = newUUID(); idMap[n.id] = nid; n.id = nid; }
+        if (n.planta_id === oldPlantaId) n.planta_id = newPlantaId;
+        return n;
+      }
 
       var inserted=0, errors=0;
-      for (var step of steps) {
-        for (var row of (backup[step.key]||[])) {
-          try { await sbInsert(step.key, step.fn(row)); inserted++; } catch(ei) { errors++; }
-        }
-      }
 
-      showToast('Restaurado: '+inserted+' registros'+(errors>0?' ('+errors+' omitidos)':'')+'\nRecargando...', 'success');
-      setTimeout(function(){location.reload();}, 2000);
-    } catch(e) { showToast('Error: ' + e.message, 'error'); }
+      // Areas
+      for (var row of (backup.areas||[])) { try{await sbInsert('areas',remapObj(row));inserted++;}catch(ex){errors++;} }
+      // Letras
+      for (var row of (backup.letras||[])) { try{await sbInsert('letras',remapObj(row));inserted++;}catch(ex){errors++;} }
+      // Festivos
+      for (var row of (backup.festivos||[])) { var n=remapObj(row); try{await sbInsert('festivos',n);inserted++;}catch(ex){errors++;} }
+      // Config planta
+      for (var row of (backup.config_planta||[])) { var n=remapObj(row); try{await sbInsert('config_planta',n);inserted++;}catch(ex){errors++;} }
+      // Ciclos (letra_id remapped)
+      for (var row of (backup.ciclos_config||[])) { var n=remapObj(row); n.letra_id=remap(row.letra_id); try{await sbInsert('ciclos_config',n);inserted++;}catch(ex){errors++;} }
+      // Vacaciones rondas
+      for (var row of (backup.vacaciones_rondas||[])) { try{await sbInsert('vacaciones_rondas',remapObj(row));inserted++;}catch(ex){errors++;} }
+      // Vacaciones config letra (ronda_id, letra_id remapped)
+      for (var row of (backup.vacaciones_config_letra||[])) { var n=remapObj(row); n.ronda_id=remap(row.ronda_id); n.letra_id=remap(row.letra_id); try{await sbInsert('vacaciones_config_letra',n);inserted++;}catch(ex){errors++;} }
+      // Empleados (area_principal_id, letra_id remapped)
+      for (var row of (backup.empleados||[])) { var n=remapObj(row); n.planta_id=newPlantaId; n.area_principal_id=remap(row.area_principal_id); n.letra_id=remap(row.letra_id); try{await sbInsert('empleados',n);inserted++;}catch(ex){errors++;} }
+      // Polivalencias (empleado_id, area_id remapped)
+      for (var row of (backup.polivalencias||[])) { var n=remapObj(row); n.empleado_id=remap(row.empleado_id); n.area_id=remap(row.area_id); try{await sbInsert('polivalencias',n);inserted++;}catch(ex){errors++;} }
+      // Turnos (empleado_id, area_id remapped)
+      for (var row of (backup.turnos||[])) { var n=remapObj(row); n.empleado_id=remap(row.empleado_id); if(n.area_id)n.area_id=remap(row.area_id); try{await sbInsert('turnos',n);inserted++;}catch(ex){errors++;} }
+      // Vacaciones solicitudes
+      for (var row of (backup.vacaciones_solicitudes||[])) { var n=remapObj(row); n.empleado_id=remap(row.empleado_id); n.ronda_id=remap(row.ronda_id); try{await sbInsert('vacaciones_solicitudes',n);inserted++;}catch(ex){errors++;} }
+      // Ausencias
+      for (var row of (backup.ausencias||[])) { var n=remapObj(row); n.empleado_id=remap(row.empleado_id); try{await sbInsert('ausencias',n);inserted++;}catch(ex){errors++;} }
+      // Intercambios
+      for (var row of (backup.intercambios||[])) { var n=remapObj(row); n.solicitante_id=remap(row.solicitante_id); n.receptor_id=remap(row.receptor_id); if(n.area_solicitante_id)n.area_solicitante_id=remap(row.area_solicitante_id); if(n.area_receptor_id)n.area_receptor_id=remap(row.area_receptor_id); try{await sbInsert('intercambios',n);inserted++;}catch(ex){errors++;} }
+      // Días libres
+      for (var row of (backup.solicitudes_dias_libres||[])) { var n=remapObj(row); n.empleado_id=remap(row.empleado_id); n.planta_id=newPlantaId; try{await sbInsert('solicitudes_dias_libres',n);inserted++;}catch(ex){errors++;} }
+
+      showToast('Restaurado: '+inserted+' registros'+(errors>0?' ('+errors+' omitidos)':'')+'. Recargando...', 'success');
+      setTimeout(function(){location.reload();},2000);
+    } catch(e) { showToast('Error: '+e.message, 'error'); }
   };
   reader.readAsText(input.files[0]);
 }
