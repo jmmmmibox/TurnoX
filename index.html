@@ -1752,7 +1752,8 @@ function showToast(msg, type) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show ' + (type || '');
-  setTimeout(() => t.classList.remove('show'), 3000);
+  var duration = type === 'error' ? 8000 : 3000;
+  setTimeout(() => t.classList.remove('show'), duration);
 }
 
 // =====================================================================
@@ -5741,19 +5742,24 @@ async function restaurarBackup(input) {
       // Vacaciones config letra (ronda_id, letra_id remapped)
       for (var row of (backup.vacaciones_config_letra||[])) { var n=remapObj(row); n.ronda_id=remap(row.ronda_id); n.letra_id=remap(row.letra_id); try{await sbInsert('vacaciones_config_letra',n);inserted++;}catch(ex){errors++;} }
       // Empleados (area_principal_id, letra_id remapped)
+      var usernamesConflicto = [];
       for (var row of (backup.empleados||[])) {
         var n=remapObj(row);
         n.planta_id=newPlantaId;
         n.area_principal_id=remap(row.area_principal_id);
         n.letra_id=remap(row.letra_id);
-        // Ensure unique username by checking if it exists
+        // Check username conflict
         try {
           var existUsr = await sbQuery('empleados', {select:'id', filters:['username=eq.'+n.username]});
           if (existUsr && existUsr.length > 0) {
-            n.username = n.username + '_' + Math.floor(Math.random()*9000+1000);
+            usernamesConflicto.push(n.username);
+            n.username = n.username + '_copia';
           }
         } catch(eu) {}
         try{await sbInsert('empleados',n);inserted++;}catch(ex){errors++;}
+      }
+      if (usernamesConflicto.length > 0) {
+        showToast('⚠️ ' + usernamesConflicto.length + ' usuario(s) duplicado(s): ' + usernamesConflicto.join(', ') + '. Se han renombrado con "_copia". Cámbialos desde la ficha de cada empleado.', 'error');
       }
       // Polivalencias (empleado_id, area_id remapped)
       for (var row of (backup.polivalencias||[])) { var n=remapObj(row); n.empleado_id=remap(row.empleado_id); n.area_id=remap(row.area_id); try{await sbInsert('polivalencias',n);inserted++;}catch(ex){errors++;} }
