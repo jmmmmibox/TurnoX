@@ -3641,7 +3641,11 @@ function renderConfiguracion() {
   }
 
   if (tab === 'letras') {
-    html += '<div class="card"><div class="card-header"><span class="card-title">Letras / Grupos</span></div><div class="card-body">';
+    html += '<div class="card"><div class="card-header"><span class="card-title">Letras / Grupos</span>';
+    html += '<button class="btn btn-sm btn-blue" onclick="modalNuevaLetra()">+ Añadir letra</button></div><div class="card-body">';
+    if (state.letras.length === 0) {
+      html += '<div class="empty-state"><p>Sin letras configuradas. Añade la primera.</p></div>';
+    }
     state.letras.forEach(l => {
       const count = state.empleados.filter(e => e.letra_id === l.id).length;
       html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">';
@@ -3649,6 +3653,10 @@ function renderConfiguracion() {
       html += '<span class="letra-badge" style="background:' + l.color + '22;color:' + l.color + ';width:32px;text-align:center">' + l.nombre + '</span>';
       html += '<span style="font-weight:600">Letra ' + l.nombre + '</span>';
       html += '<span style="font-size:12px;color:var(--text2)">' + count + ' empleados</span>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:4px">';
+      html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarLetra(\'' + l.id + '\')">✎</button>';
+      html += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarLetra(\'' + l.id + '\',\'' + l.nombre + '\',' + count + ')">✕</button>';
       html += '</div></div>';
     });
     html += '</div></div>';
@@ -5233,6 +5241,86 @@ async function guardarTodosCiclos() {
     showToast('Ciclos guardados', 'success');
     renderConfiguracion();
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+// =====================================================================
+// LETRAS — CRUD
+// =====================================================================
+var COLORES_LETRA = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#06B6D4','#84CC16','#F97316','#6366F1'];
+
+function modalNuevaLetra() {
+  var colorIdx = state.letras.length % COLORES_LETRA.length;
+  var body = '<div class="form-group"><label class="form-label">Nombre (letra o código)</label>';
+  body += '<input class="form-input" id="nl-nombre" placeholder="Ej: A, B, ER, T1..." maxlength="4"></div>';
+  body += '<div class="form-group"><label class="form-label">Color</label>';
+  body += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
+  COLORES_LETRA.forEach(function(c) {
+    body += '<div onclick="document.getElementById(\'nl-color\').value=\'' + c + '\';document.querySelectorAll(\'.color-swatch\').forEach(function(s){s.style.outline=\'none\'});this.style.outline=\'3px solid #000\'" class="color-swatch" style="width:28px;height:28px;border-radius:6px;background:' + c + ';cursor:pointer"></div>';
+  });
+  body += '</div><input type="color" class="form-input" id="nl-color" value="' + COLORES_LETRA[colorIdx] + '" style="width:60px;height:36px;padding:2px"></div>';
+  openModal('Nueva letra', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="crearLetra()">Crear</button>');
+}
+
+async function crearLetra() {
+  var nombre = document.getElementById('nl-nombre').value.trim().toUpperCase();
+  var color = document.getElementById('nl-color').value;
+  if (!nombre) { showToast('Indica el nombre de la letra', 'error'); return; }
+  try {
+    var result = await sbInsert('letras', { nombre: nombre, color: color, planta_id: PLANTA_ID });
+    state.letras = await sbQuery('letras', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] });
+    closeModal();
+    showToast('Letra ' + nombre + ' creada', 'success');
+    renderConfiguracion();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalEditarLetra(letraId) {
+  var l = state.letras.find(function(x) { return x.id === letraId; });
+  if (!l) return;
+  var body = '<div class="form-group"><label class="form-label">Nombre</label>';
+  body += '<input class="form-input" id="el-nombre" value="' + l.nombre + '" maxlength="4"></div>';
+  body += '<div class="form-group"><label class="form-label">Color</label>';
+  body += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
+  COLORES_LETRA.forEach(function(c) {
+    body += '<div onclick="document.getElementById(\'el-color\').value=\'' + c + '\';document.querySelectorAll(\'.color-swatch2\').forEach(function(s){s.style.outline=\'none\'});this.style.outline=\'3px solid #000\'" class="color-swatch2" style="width:28px;height:28px;border-radius:6px;background:' + c + ';cursor:pointer' + (l.color === c ? ';outline:3px solid #000' : '') + '"></div>';
+  });
+  body += '</div><input type="color" class="form-input" id="el-color" value="' + l.color + '" style="width:60px;height:36px;padding:2px"></div>';
+  openModal('Editar letra ' + l.nombre, body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="guardarLetra(\'' + letraId + '\')">Guardar</button>');
+}
+
+async function guardarLetra(letraId) {
+  var nombre = document.getElementById('el-nombre').value.trim().toUpperCase();
+  var color = document.getElementById('el-color').value;
+  if (!nombre) { showToast('Indica el nombre', 'error'); return; }
+  try {
+    await sbUpdate('letras', letraId, { nombre: nombre, color: color });
+    state.letras = await sbQuery('letras', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] });
+    closeModal();
+    showToast('Letra actualizada', 'success');
+    renderConfiguracion();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function eliminarLetra(letraId, nombre, count) {
+  if (count > 0) {
+    if (!confirm('La letra ' + nombre + ' tiene ' + count + ' empleados asignados. ¿Eliminar igualmente?')) return;
+  } else {
+    if (!confirm('¿Eliminar la letra ' + nombre + '?')) return;
+  }
+  try {
+    // Delete associated ciclos first
+    var ciclos = state.ciclosConfig.filter(function(c) { return c.letra_id === letraId; });
+    for (var i = 0; i < ciclos.length; i++) await sbDelete('ciclos_config', ciclos[i].id);
+    await sbDelete('letras', letraId);
+    state.letras = state.letras.filter(function(l) { return l.id !== letraId; });
+    state.ciclosConfig = state.ciclosConfig.filter(function(c) { return c.letra_id !== letraId; });
+    showToast('Letra ' + nombre + ' eliminada', 'success');
+    renderConfiguracion();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 function modalNuevoCiclo(letraId, letraNombre) {
