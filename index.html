@@ -5598,184 +5598,126 @@ async function guardarNombrePlanta() {
 // BACKUP / RESTORE
 // =====================================================================
 async function descargarBackup() {
-  showToast('Generando backup...');
+  showToast('Generando backup completo...');
   try {
-    var backup = {
-      version: 'turnox-backup-v1',
-      fecha: new Date().toISOString(),
-      planta_id: PLANTA_ID,
-    };
+    var backup = { version: 'turnox-backup-v2', fecha: new Date().toISOString(), planta_id: PLANTA_ID };
 
-    // Only backup data for current plant
     backup.areas = await sbQuery('areas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] }) || [];
     backup.letras = await sbQuery('letras', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] }) || [];
     backup.festivos = await sbQuery('festivos', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] }) || [];
-    backup.ciclos_config = await sbQuery('ciclos_config', { select: '*' }) || [];
-    backup.ciclos_config = backup.ciclos_config.filter(function(c) { return backup.letras.some(function(l) { return l.id === c.letra_id; }); });
     backup.vacaciones_rondas = await sbQuery('vacaciones_rondas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] }) || [];
+    backup.config_planta = await sbQuery('config_planta', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] }) || [];
     backup.empleados = await sbQuery('empleados', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID] }) || [];
-    var empIds = backup.empleados.map(function(e) { return e.id; });
-    backup.polivalencias = (await sbQuery('polivalencias', { select: '*' }) || []).filter(function(p) { return empIds.includes(p.empleado_id); });
-    backup.turnos = (await sbQuery('turnos', { select: '*' }) || []).filter(function(t) { return empIds.includes(t.empleado_id); });
-    backup.vacaciones_solicitudes = (await sbQuery('vacaciones_solicitudes', { select: '*' }) || []).filter(function(v) { return empIds.includes(v.empleado_id); });
-    backup.ausencias = (await sbQuery('ausencias', { select: '*' }) || []).filter(function(a) { return empIds.includes(a.empleado_id); });
-    backup.intercambios = (await sbQuery('intercambios', { select: '*' }) || []).filter(function(ic) { return empIds.includes(ic.solicitante_id) || empIds.includes(ic.receptor_id); });
 
+    var empIds = backup.empleados.map(function(e) { return e.id; });
+    var letraIds = backup.letras.map(function(l) { return l.id; });
+    var rondaIds = backup.vacaciones_rondas.map(function(r) { return r.id; });
+
+    var allCiclos = await sbQuery('ciclos_config', { select: '*' }) || [];
+    backup.ciclos_config = allCiclos.filter(function(c) { return letraIds.includes(c.letra_id); });
+
+    var allVacConfig = await sbQuery('vacaciones_config_letra', { select: '*' }) || [];
+    backup.vacaciones_config_letra = allVacConfig.filter(function(v) { return rondaIds.includes(v.ronda_id); });
+
+    var allPol = await sbQuery('polivalencias', { select: '*' }) || [];
+    backup.polivalencias = allPol.filter(function(p) { return empIds.includes(p.empleado_id); });
+
+    var allTurnos = await sbQuery('turnos', { select: '*' }) || [];
+    backup.turnos = allTurnos.filter(function(t) { return empIds.includes(t.empleado_id); });
+
+    var allVacSol = await sbQuery('vacaciones_solicitudes', { select: '*' }) || [];
+    backup.vacaciones_solicitudes = allVacSol.filter(function(v) { return empIds.includes(v.empleado_id); });
+
+    var allAus = await sbQuery('ausencias', { select: '*' }) || [];
+    backup.ausencias = allAus.filter(function(a) { return empIds.includes(a.empleado_id); });
+
+    var allInt = await sbQuery('intercambios', { select: '*' }) || [];
+    backup.intercambios = allInt.filter(function(ic) { return empIds.includes(ic.solicitante_id) || empIds.includes(ic.receptor_id); });
+
+    var allDL = await sbQuery('solicitudes_dias_libres', { select: '*' }) || [];
+    backup.solicitudes_dias_libres = allDL.filter(function(d) { return empIds.includes(d.empleado_id); });
+
+    var total = Object.values(backup).filter(Array.isArray).reduce(function(s,a){return s+a.length;},0);
     var blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
-    a.href = url;
-    a.download = 'turnox-backup-' + todayStr() + '.json';
-    a.click();
+    a.href = url; a.download = 'turnox-backup-' + todayStr() + '.json'; a.click();
     URL.revokeObjectURL(url);
-    showToast('Backup descargado', 'success');
+    showToast('Backup completo: ' + total + ' registros', 'success');
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 async function restaurarBackup(input) {
   if (!input.files || !input.files[0]) return;
-  if (!confirm('¿Restaurar backup en esta planta?\n\nSe eliminarán los datos actuales de esta planta y se reemplazarán con los del backup.')) { input.value = ''; return; }
-  if (!confirm('⚠️ Segunda confirmación: esta acción no se puede deshacer. ¿Continuar?')) { input.value = ''; return; }
+  if (!confirm('¿Restaurar backup?\n\nSe eliminarán TODOS los datos actuales y se reemplazarán con los del backup.')) { input.value=''; return; }
+  if (!confirm('⚠️ Segunda confirmación: esta acción NO se puede deshacer.')) { input.value=''; return; }
 
   var reader = new FileReader();
   reader.onload = async function(e) {
     try {
       var backup = JSON.parse(e.target.result);
-      if (backup.version !== 'turnox-backup-v1') { showToast('Archivo de backup no válido', 'error'); return; }
+      if (!backup.version || !backup.planta_id) { showToast('Archivo no válido', 'error'); return; }
       showToast('Restaurando backup...');
 
-      // Get original planta_id from backup
-      var oldPlantaId = backup.planta_id || (backup.plantas && backup.plantas[0] ? backup.plantas[0].id : null);
-      var newPlantaId = PLANTA_ID;
+      var oldId = backup.planta_id;
+      var newId = PLANTA_ID;
+      var sameId = oldId === newId;
 
-      // Helper: remap planta_id in objects
-      function remap(obj) {
-        var o = Object.assign({}, obj);
-        if (o.planta_id === oldPlantaId) o.planta_id = newPlantaId;
-        return o;
+      function fix(o) {
+        var r = Object.assign({}, o);
+        if (!sameId && r.planta_id === oldId) r.planta_id = newId;
+        return r;
       }
 
-      // Build ID remapping for areas, letras (since other tables reference them)
-      var areaIdMap = {}, letraIdMap = {};
-
-      // 1. Delete existing data for this plant
-      var tablasConPlanta = ['areas', 'letras', 'festivos', 'vacaciones_rondas'];
-      for (var t = 0; t < tablasConPlanta.length; t++) {
-        try {
-          var ex = await sbQuery(tablasConPlanta[t], { select: 'id', filters: ['planta_id=eq.' + newPlantaId] });
-          for (var j = 0; j < (ex || []).length; j++) try { await sbDelete(tablasConPlanta[t], ex[j].id); } catch(ed) {}
-        } catch(ed2) {}
-      }
-      // Delete empleados and their dependent data
-      var exEmps = await sbQuery('empleados', { select: 'id', filters: ['planta_id=eq.' + newPlantaId] }) || [];
-      for (var je = 0; je < exEmps.length; je++) {
-        var eid = exEmps[je].id;
-        for (var ttt of ['polivalencias','turnos','vacaciones_solicitudes','intercambios','ausencias','notificaciones','solicitudes_dias_libres']) {
-          try {
-            var exd = await sbQuery(ttt, { select: 'id', filters: ['empleado_id=eq.' + eid] });
-            for (var jd = 0; jd < (exd || []).length; jd++) try { await sbDelete(ttt, exd[jd].id); } catch(ed3) {}
-          } catch(ed4) {}
+      // 1. Delete all current plant data (reverse dependency order)
+      var empIds = (await sbQuery('empleados', {select:'id', filters:['planta_id=eq.'+newId]})||[]).map(function(e){return e.id;});
+      for (var eid of empIds) {
+        for (var tbl of ['notificaciones','solicitudes_dias_libres','ausencias','vacaciones_solicitudes','turnos','polivalencias']) {
+          try { var rr=await sbQuery(tbl,{select:'id',filters:['empleado_id=eq.'+eid]}); for(var x of(rr||[])) try{await sbDelete(tbl,x.id);}catch(e){} } catch(e){}
         }
-        try { await sbDelete('empleados', eid); } catch(ed5) {}
+        try { await sbDelete('empleados', eid); } catch(e){}
+      }
+      // intercambios by receptor
+      for (var eid2 of empIds) {
+        try { var ri=await sbQuery('intercambios',{select:'id',filters:['receptor_id=eq.'+eid2]}); for(var x of(ri||[])) try{await sbDelete('intercambios',x.id);}catch(e){} } catch(e){}
+      }
+      // rondas and their configs
+      var rIds=(await sbQuery('vacaciones_rondas',{select:'id',filters:['planta_id=eq.'+newId]})||[]).map(function(r){return r.id;});
+      for (var rid of rIds) {
+        try{var vc=await sbQuery('vacaciones_config_letra',{select:'id',filters:['ronda_id=eq.'+rid]});for(var x of(vc||[]))try{await sbDelete('vacaciones_config_letra',x.id);}catch(e){}}catch(e){}
+        try{await sbDelete('vacaciones_rondas',rid);}catch(e){}
+      }
+      // letras and their ciclos
+      var lIds=(await sbQuery('letras',{select:'id',filters:['planta_id=eq.'+newId]})||[]).map(function(l){return l.id;});
+      for (var lid of lIds) {
+        try{var cc=await sbQuery('ciclos_config',{select:'id',filters:['letra_id=eq.'+lid]});for(var x of(cc||[]))try{await sbDelete('ciclos_config',x.id);}catch(e){}}catch(e){}
+        try{await sbDelete('letras',lid);}catch(e){}
+      }
+      for (var tbl2 of ['areas','festivos','config_planta']) {
+        try{var tr=await sbQuery(tbl2,{select:'id',filters:['planta_id=eq.'+newId]});for(var x of(tr||[]))try{await sbDelete(tbl2,x.id);}catch(e){}}catch(e){}
       }
 
-      // 2. Insert areas with new IDs
-      for (var a of (backup.areas || [])) {
-        var newArea = remap(Object.assign({}, a));
-        delete newArea.id;
-        try {
-          var insertedArea = await sbInsert('areas', newArea);
-          // Get new id
-          var newAreaRows = await sbQuery('areas', { select: 'id', filters: ['planta_id=eq.' + newPlantaId, 'nombre=eq.' + a.nombre], order: 'created_at.desc', limit: 1 });
-          if (newAreaRows && newAreaRows[0]) areaIdMap[a.id] = newAreaRows[0].id;
-        } catch(ei) {}
+      // 2. Insert in order, keeping original IDs
+      var steps = [
+        {key:'areas', fn:fix}, {key:'letras', fn:fix}, {key:'festivos', fn:fix},
+        {key:'config_planta', fn:fix}, {key:'ciclos_config', fn:function(o){return o;}},
+        {key:'vacaciones_rondas', fn:fix}, {key:'vacaciones_config_letra', fn:function(o){return o;}},
+        {key:'empleados', fn:fix}, {key:'polivalencias', fn:function(o){return o;}},
+        {key:'turnos', fn:function(o){return o;}}, {key:'vacaciones_solicitudes', fn:function(o){return o;}},
+        {key:'ausencias', fn:function(o){return o;}}, {key:'intercambios', fn:function(o){return o;}},
+        {key:'solicitudes_dias_libres', fn:fix}, {key:'notificaciones', fn:function(o){return o;}}
+      ];
+
+      var inserted=0, errors=0;
+      for (var step of steps) {
+        for (var row of (backup[step.key]||[])) {
+          try { await sbInsert(step.key, step.fn(row)); inserted++; } catch(ei) { errors++; }
+        }
       }
 
-      // 3. Insert letras with new IDs
-      for (var l of (backup.letras || [])) {
-        var newLetra = remap(Object.assign({}, l));
-        delete newLetra.id;
-        try {
-          await sbInsert('letras', newLetra);
-          var newLetraRows = await sbQuery('letras', { select: 'id', filters: ['planta_id=eq.' + newPlantaId, 'nombre=eq.' + l.nombre], order: 'created_at.desc', limit: 1 });
-          if (newLetraRows && newLetraRows[0]) letraIdMap[l.id] = newLetraRows[0].id;
-        } catch(ei) {}
-      }
-
-      // 4. Insert festivos
-      for (var f of (backup.festivos || [])) {
-        try { await sbInsert('festivos', remap(Object.assign({}, f, { id: undefined }))); } catch(ei) {}
-      }
-
-      // 5. Insert ciclos_config remapping letra_id
-      for (var c of (backup.ciclos_config || [])) {
-        var nc = Object.assign({}, c);
-        delete nc.id;
-        nc.letra_id = letraIdMap[c.letra_id] || c.letra_id;
-        try { await sbInsert('ciclos_config', nc); } catch(ei) {}
-      }
-
-      // 6. Insert empleados remapping area and letra IDs
-      var empIdMap = {};
-      for (var emp of (backup.empleados || [])) {
-        var ne = Object.assign({}, emp);
-        delete ne.id;
-        ne.planta_id = newPlantaId;
-        ne.area_principal_id = areaIdMap[emp.area_principal_id] || emp.area_principal_id;
-        ne.letra_id = letraIdMap[emp.letra_id] || emp.letra_id;
-        try {
-          await sbInsert('empleados', ne);
-          var newEmpRows = await sbQuery('empleados', { select: 'id', filters: ['planta_id=eq.' + newPlantaId, 'username=eq.' + emp.username], limit: 1 });
-          if (newEmpRows && newEmpRows[0]) empIdMap[emp.id] = newEmpRows[0].id;
-        } catch(ei) {}
-      }
-
-      // 7. Insert polivalencias remapping ids
-      for (var pv of (backup.polivalencias || [])) {
-        var npv = Object.assign({}, pv);
-        delete npv.id;
-        npv.empleado_id = empIdMap[pv.empleado_id] || pv.empleado_id;
-        npv.area_id = areaIdMap[pv.area_id] || pv.area_id;
-        try { await sbInsert('polivalencias', npv); } catch(ei) {}
-      }
-
-      // 8. Insert vacaciones_rondas
-      var rondaIdMap = {};
-      for (var r of (backup.vacaciones_rondas || [])) {
-        var nr = remap(Object.assign({}, r));
-        delete nr.id;
-        try {
-          await sbInsert('vacaciones_rondas', nr);
-          var newRondaRows = await sbQuery('vacaciones_rondas', { select: 'id', filters: ['planta_id=eq.' + newPlantaId, 'numero_ronda=eq.' + r.numero_ronda], limit: 1 });
-          if (newRondaRows && newRondaRows[0]) rondaIdMap[r.id] = newRondaRows[0].id;
-        } catch(ei) {}
-      }
-
-      // 9. Insert turnos, vacaciones, ausencias, intercambios remapping empleado_id
-      for (var tn of (backup.turnos || [])) {
-        var ntn = Object.assign({}, tn);
-        delete ntn.id;
-        ntn.empleado_id = empIdMap[tn.empleado_id] || tn.empleado_id;
-        ntn.area_id = tn.area_id ? (areaIdMap[tn.area_id] || tn.area_id) : null;
-        try { await sbInsert('turnos', ntn); } catch(ei) {}
-      }
-      for (var vs of (backup.vacaciones_solicitudes || [])) {
-        var nvs = Object.assign({}, vs);
-        delete nvs.id;
-        nvs.empleado_id = empIdMap[vs.empleado_id] || vs.empleado_id;
-        nvs.ronda_id = rondaIdMap[vs.ronda_id] || vs.ronda_id;
-        try { await sbInsert('vacaciones_solicitudes', nvs); } catch(ei) {}
-      }
-      for (var aus of (backup.ausencias || [])) {
-        var naus = Object.assign({}, aus);
-        delete naus.id;
-        naus.empleado_id = empIdMap[aus.empleado_id] || aus.empleado_id;
-        try { await sbInsert('ausencias', naus); } catch(ei) {}
-      }
-
-      showToast('Backup restaurado correctamente. Recargando...', 'success');
-      setTimeout(function() { location.reload(); }, 2000);
-    } catch (e) { showToast('Error: ' + e.message, 'error'); }
+      showToast('Restaurado: '+inserted+' registros'+(errors>0?' ('+errors+' omitidos)':'')+'\nRecargando...', 'success');
+      setTimeout(function(){location.reload();}, 2000);
+    } catch(e) { showToast('Error: ' + e.message, 'error'); }
   };
   reader.readAsText(input.files[0]);
 }
