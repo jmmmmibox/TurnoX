@@ -925,41 +925,20 @@ td.col-descubierto { background: #FEF2F2 !important; }
     <div class="login-tabs">
       <button class="login-tab active" onclick="switchLoginTab('gestor')">Gestor</button>
       <button class="login-tab" onclick="switchLoginTab('empleado')">Empleado</button>
-      <button class="login-tab" onclick="switchLoginTab('registro')">Registrarse</button>
     </div>
     <div id="login-gestor">
       <div class="form-group">
         <label class="form-label">Email</label>
-        <input type="email" class="form-input" id="g-email" placeholder="tu@empresa.com">
+        <input type="email" class="form-input" id="g-email" placeholder="gestor@empresa.com" >
       </div>
       <div class="form-group">
         <label class="form-label">Contraseña</label>
         <div class="pass-wrap">
-          <input type="password" class="form-input" id="g-pass" placeholder="••••••••">
+          <input type="password" class="form-input" id="g-pass" placeholder="••••••••" >
           <button type="button" class="pass-toggle" onclick="togglePass('g-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         </div>
       </div>
-      <button class="btn-primary" onclick="loginGestor()">Acceder</button>
-      <p style="text-align:center;font-size:12px;color:var(--text3);margin-top:12px">¿No tienes cuenta? <a href="#" onclick="switchLoginTab('registro');return false" style="color:var(--primary-light)">Regístrate</a></p>
-    </div>
-    <div id="login-registro" style="display:none">
-      <div class="form-group">
-        <label class="form-label">Nombre completo</label>
-        <input type="text" class="form-input" id="r-nombre" placeholder="Tu nombre">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input type="email" class="form-input" id="r-email" placeholder="tu@empresa.com">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Contraseña</label>
-        <div class="pass-wrap">
-          <input type="password" class="form-input" id="r-pass" placeholder="Mínimo 6 caracteres">
-          <button type="button" class="pass-toggle" onclick="togglePass('r-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-        </div>
-      </div>
-      <button class="btn-primary" onclick="registrarGestor()">Crear cuenta</button>
-      <p style="text-align:center;font-size:12px;color:var(--text3);margin-top:12px">¿Ya tienes cuenta? <a href="#" onclick="switchLoginTab('gestor');return false" style="color:var(--primary-light)">Inicia sesión</a></p>
+      <button class="btn-primary" onclick="loginGestor()">Acceder como Gestor</button>
     </div>
     <div id="login-empleado" style="display:none">
       <div class="form-group">
@@ -1151,15 +1130,6 @@ async function sbSignIn(email, password) {
   return res.json();
 }
 
-async function sbSignUp(email, password) {
-  const res = await fetch(SUPABASE_URL + '/auth/v1/signup', {
-    method: 'POST',
-    headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password })
-  });
-  return res.json();
-}
-
 // =====================================================================
 // STATE
 // =====================================================================
@@ -1231,45 +1201,11 @@ function calcTurno(empleado, fechaStr) {
 // =====================================================================
 function switchLoginTab(tab) {
   document.querySelectorAll('.login-tab').forEach((t, i) => {
-    t.classList.toggle('active', (i === 0 && tab === 'gestor') || (i === 1 && tab === 'empleado') || (i === 2 && tab === 'registro'));
+    t.classList.toggle('active', (i === 0 && tab === 'gestor') || (i === 1 && tab === 'empleado'));
   });
   document.getElementById('login-gestor').style.display = tab === 'gestor' ? '' : 'none';
   document.getElementById('login-empleado').style.display = tab === 'empleado' ? '' : 'none';
-  document.getElementById('login-registro').style.display = tab === 'registro' ? '' : 'none';
   document.getElementById('login-error').textContent = '';
-}
-
-async function registrarGestor() {
-  var nombre = document.getElementById('r-nombre').value.trim();
-  var email = document.getElementById('r-email').value.trim();
-  var pass = document.getElementById('r-pass').value.trim();
-  var errEl = document.getElementById('login-error');
-  errEl.textContent = '';
-
-  if (!nombre) { errEl.textContent = 'Indica tu nombre'; return; }
-  if (!email || !email.includes('@')) { errEl.textContent = 'Email no válido'; return; }
-  if (!pass || pass.length < 6) { errEl.textContent = 'La contraseña debe tener al menos 6 caracteres'; return; }
-
-  try {
-    var r = await sbSignUp(email, pass);
-    if (r.error) { errEl.textContent = r.error.message || 'Error en el registro'; return; }
-    if (!r.user && !r.id) { errEl.textContent = '¿Ya existe una cuenta con este email?'; return; }
-
-    authToken = r.access_token;
-    var userId = r.user ? r.user.id : r.id;
-
-    // Create gestor row
-    try { await sbInsert('gestores', { id: userId, nombre: nombre, email: email, rol: 'gestor', activo: true }); } catch(eg) {}
-
-    // Enter app with no plants - will show create first plant screen
-    state.plantasDisponibles = [];
-    var user = { tipo: 'gestor', id: userId, nombre: nombre, email: email };
-    state._pendingUser = user;
-    mostrarSelectorPlanta(user, []);
-
-  } catch(e) {
-    errEl.textContent = 'Error: ' + (e.message || 'Inténtalo de nuevo');
-  }
 }
 
 async function loginGestor() {
@@ -1286,29 +1222,62 @@ async function loginGestor() {
       return;
     }
     authToken = r.access_token;
+    const nombre = email.split('@')[0];
     const userId = r.user.id;
 
-    // Get gestor info
-    var gestorRows = await sbQuery('gestores', { select: '*', filters: ['id=eq.' + userId] });
-    var nombre = gestorRows && gestorRows[0] ? gestorRows[0].nombre : email.split('@')[0];
+    // Check if super admin
+    var esSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+    state.isSuperAdmin = esSuperAdmin;
 
-    // Get plants by gestor_id
-    var plantas = await sbQuery('plantas', { select: '*', filters: ['gestor_id=eq.' + userId, 'activa=eq.true'] }) || [];
+    // Ensure gestor row exists
+    try {
+      var existG = await sbQuery('gestores', { select: 'id', filters: ['id=eq.' + userId] });
+      if (!existG || existG.length === 0) {
+        await sbInsert('gestores', { id: userId, nombre: nombre, email: email, rol: esSuperAdmin ? 'superadmin' : 'gestor' });
+      }
+    } catch(eg) {}
+
+    // Ensure super_admins row exists
+    if (esSuperAdmin) {
+      try {
+        var existSA = await sbQuery('super_admins', { select: 'id', filters: ['id=eq.' + userId] });
+        if (!existSA || existSA.length === 0) {
+          await sbInsert('super_admins', { id: userId, email: email, nombre: nombre });
+        }
+      } catch(esa) {}
+    }
+
+    // Get available plants
+    var plantas = [];
+    if (esSuperAdmin) {
+      // Super admin sees all plants
+      plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] });
+    } else {
+      // Normal gestor: check gestor_plantas
+      var gp = await sbQuery('gestor_plantas', { select: 'planta_id', filters: ['gestor_id=eq.' + userId] });
+      if (gp && gp.length > 0) {
+        var plantaIds = gp.map(function(g) { return g.planta_id; });
+        plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] });
+        plantas = plantas.filter(function(p) { return plantaIds.includes(p.id); });
+      }
+    }
 
     state.plantasDisponibles = plantas;
-    var user = { tipo: 'gestor', id: userId, nombre: nombre, email: email };
-    state._pendingUser = user;
 
-    if (plantas.length === 0) {
-      // No plants yet → show selector (will show create first plant)
-      mostrarSelectorPlanta(user, []);
-    } else if (plantas.length === 1) {
-      PLANTA_ID = plantas[0].id;
-      enterApp(user);
-    } else {
-      mostrarSelectorPlanta(user, plantas);
+    if (plantas.length === 0 && !esSuperAdmin) {
+      errEl.textContent = 'No tienes plantas asignadas. Contacta al administrador.';
+      return;
     }
-  } catch(e) {
+
+    if (plantas.length === 1 && !esSuperAdmin) {
+      // Single plant, normal gestor → enter directly
+      PLANTA_ID = plantas[0].id;
+      enterApp({ tipo: 'gestor', id: userId, nombre: nombre, email: email });
+    } else if (esSuperAdmin || plantas.length > 1) {
+      // Super admin always sees selector, or gestor with multiple plants
+      mostrarSelectorPlanta({ tipo: esSuperAdmin ? 'superadmin' : 'gestor', id: userId, nombre: nombre, email: email }, plantas);
+    }
+  } catch (e) {
     errEl.textContent = 'Error de conexión';
     console.error('Login error:', e);
   }
@@ -1321,36 +1290,25 @@ function mostrarSelectorPlanta(user, plantas) {
   sel.style.display = 'flex';
   var html = '<div class="login-box" style="max-width:500px">';
   html += '<div class="login-logo"><div class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>';
-  html += '<h1>TurnoX</h1>';
+  html += '<h1>TurnoX</h1><p>Selecciona la planta</p></div>';
+  html += '<div style="display:flex;flex-direction:column;gap:8px">';
+  plantas.forEach(function(p) {
+    html += '<button class="btn btn-outline w-full" style="padding:14px;font-size:14px;justify-content:space-between" onclick="seleccionarPlanta(\'' + p.id + '\')">';
+    html += '<span style="font-weight:600">' + p.nombre + '</span>';
+    html += '<span style="font-size:12px;color:var(--text3)">' + (p.descripcion || '') + '</span></button>';
+  });
 
-  if (plantas.length === 0) {
-    html += '<p>Crea tu primera planta para empezar</p></div>';
-    html += '<div style="display:flex;flex-direction:column;gap:8px">';
-    html += '<div class="form-group"><label class="form-label">Nombre de la planta / empresa</label>';
-    html += '<input class="form-input" id="np-nombre" placeholder="Ej: Planta Huelva"></div>';
-    html += '<button class="btn btn-blue w-full" style="padding:14px" onclick="crearNuevaPlantaSelector()">Crear planta y entrar</button>';
-  } else {
-    html += '<p>Selecciona la planta</p></div>';
-    html += '<div style="display:flex;flex-direction:column;gap:8px">';
-    plantas.forEach(function(p) {
-      html += '<div style="display:flex;gap:8px;align-items:center">';
-      html += '<button class="btn btn-outline w-full" style="padding:14px;font-size:14px;text-align:left;flex:1" onclick="seleccionarPlanta(\'' + p.id + '\')">';
-      html += '<span style="font-weight:600">' + p.nombre + '</span></button>';
-      html += '<button class="btn btn-ghost" style="color:var(--danger);padding:8px;flex-shrink:0" title="Eliminar planta" onclick="eliminarPlantaSelector(\'' + p.id + '\',\'' + p.nombre + '\')">🗑</button>';
-      html += '</div>';
-    });
-
-    if (plantas.length < 3) {
-      html += '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
-      html += '<div id="nueva-planta-form" style="display:none;flex-direction:column;gap:8px;margin-bottom:8px">';
-      html += '<input class="form-input" id="np-nombre" placeholder="Nombre de la nueva planta">';
-      html += '<div style="display:flex;gap:8px">';
-      html += '<button class="btn btn-blue" style="flex:1" onclick="crearNuevaPlantaSelector()">Crear</button>';
-      html += '<button class="btn btn-ghost" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'none\'">Cancelar</button>';
-      html += '</div></div>';
-      html += '<button class="btn btn-outline w-full" style="border-style:dashed;color:var(--text2)" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'flex\'">+ Crear nueva planta</button>';
-      html += '</div>';
-    }
+  // Allow creating a new plant if < 3 plants
+  if (plantas.length < 3) {
+    html += '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
+    html += '<div id="nueva-planta-form" style="display:none;flex-direction:column;gap:8px;margin-bottom:8px">';
+    html += '<input class="form-input" id="np-nombre" placeholder="Nombre de la nueva planta">';
+    html += '<div style="display:flex;gap:8px">';
+    html += '<button class="btn btn-blue" style="flex:1" onclick="crearNuevaPlantaSelector()">Crear</button>';
+    html += '<button class="btn btn-ghost" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'none\'">Cancelar</button>';
+    html += '</div></div>';
+    html += '<button class="btn btn-outline w-full" style="border-style:dashed;color:var(--text2)" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'flex\'">+ Crear nueva planta</button>';
+    html += '</div>';
   }
 
   html += '</div>';
@@ -1360,30 +1318,17 @@ function mostrarSelectorPlanta(user, plantas) {
   state._pendingUser = user;
 }
 
-async function eliminarPlantaSelector(plantaId, nombre) {
-  if (!confirm('¿Eliminar la planta "' + nombre + '"?\n\nSe eliminarán todos sus datos (empleados, turnos, etc.). Esta acción no se puede deshacer.')) return;
-  try {
-    await sbDelete('plantas', plantaId);
-    state.plantasDisponibles = state.plantasDisponibles.filter(function(p) { return p.id !== plantaId; });
-    mostrarSelectorPlanta(state._pendingUser, state.plantasDisponibles);
-  } catch(e) { alert('Error al eliminar: ' + e.message); }
-}
-
 async function crearNuevaPlantaSelector() {
   var nombre = document.getElementById('np-nombre') ? document.getElementById('np-nombre').value.trim() : '';
   if (!nombre) { alert('Indica el nombre de la planta'); return; }
-  var userId = state._pendingUser ? state._pendingUser.id : null;
-  if (!userId) { alert('Error: sesión no válida'); return; }
   try {
-    await sbInsert('plantas', { nombre: nombre, activa: true, gestor_id: userId });
-    var plantas = await sbQuery('plantas', { select: '*', filters: ['gestor_id=eq.' + userId, 'activa=eq.true'] }) || [];
-    state.plantasDisponibles = plantas;
-    if (plantas.length === 1) {
-      PLANTA_ID = plantas[0].id;
-      enterApp(state._pendingUser);
-    } else {
-      mostrarSelectorPlanta(state._pendingUser, plantas);
+    var result = await sbInsert('plantas', { nombre: nombre, activa: true });
+    // Get the new plant id
+    var nuevaPlanta = await sbQuery('plantas', { select: '*', filters: ['nombre=eq.' + nombre], order: 'created_at.desc', limit: 1 });
+    if (nuevaPlanta && nuevaPlanta[0]) {
+      state.plantasDisponibles.push(nuevaPlanta[0]);
     }
+    mostrarSelectorPlanta(state._pendingUser, state.plantasDisponibles);
   } catch(e) { alert('Error: ' + e.message); }
 }
 
@@ -1690,10 +1635,11 @@ function buildNav() {
   } else {
     items = NAV_EMPLEADO;
   }
-  // Show "Mis plantas" always for gestores
-  if (!state.user.modoAdmin && (state.user.tipo === 'gestor' || state.user.tipo === 'superadmin')) {
+  // If super admin is in a plant, add "Cambiar planta" at the end
+  if (state.isSuperAdmin && !state.user.modoAdmin && state.plantasDisponibles.length > 1) {
     items = items.concat([
-      { id: 'cambiar-planta', label: state.plantasDisponibles.length > 1 ? 'Cambiar planta' : 'Mis plantas', icon: 'grid' },
+      { separator: 'Admin' },
+      { id: 'cambiar-planta', label: 'Cambiar planta', icon: 'grid' },
     ]);
   }
   nav.innerHTML = items.map(item => {
@@ -1802,14 +1748,6 @@ function renderDashboard() {
   var fechaVer = state.dashFecha;
   var esHoy = fechaVer === todayStr();
   const total = state.empleados.length;
-
-  // Check if plant is unconfigured
-  var sinAreas = !state.areas || state.areas.length === 0;
-  var sinLetras = !state.letras || state.letras.length === 0;
-  if (sinAreas || sinLetras) {
-    document.getElementById('page-dashboard').innerHTML = '<div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:12px;padding:24px;text-align:center;max-width:500px;margin:40px auto"><div style="font-size:32px;margin-bottom:12px">⚙️</div><div style="font-size:16px;font-weight:700;margin-bottom:8px">Esta planta aún no está configurada</div><div style="font-size:13px;color:var(--text2);margin-bottom:20px">Configura las áreas, letras y ciclos de turno para empezar a gestionar.</div><button class="btn btn-blue" onclick="navigateTo(\'configuracion\')">Ir a Configuración</button></div>';
-    return;
-  }
 
   // Calcular turnos de todos + área real
   const empTurnos = state.empleados.map(function(e) {
