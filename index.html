@@ -3800,6 +3800,8 @@ function renderConfiguracion() {
       html += '<div style="display:flex;gap:4px">';
       if (idx > 0) html += '<button class="btn btn-sm btn-ghost" onclick="moverArea(\'' + a.id + '\',-1)" title="Subir">↑</button>';
       if (idx < sortedAreas.length - 1) html += '<button class="btn btn-sm btn-ghost" onclick="moverArea(\'' + a.id + '\',1)" title="Bajar">↓</button>';
+      html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarArea(\'' + a.id + '\')">✎</button>';
+      html += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarArea(\'' + a.id + '\',\'' + a.nombre.replace(/'/g,"\\'") + '\')">✕</button>';
       html += '</div></div>';
     });
     html += '</div></div>';
@@ -5625,6 +5627,53 @@ async function crearArea() {
     renderConfiguracion();
     showToast('Área creada', 'success');
   } catch (e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+function modalEditarArea(areaId) {
+  var a = state.areas.find(function(x) { return x.id === areaId; });
+  if (!a) return;
+  var body = '<div class="form-group"><label class="form-label">Nombre del área</label>';
+  body += '<input class="form-input" id="earea-nombre" value="' + a.nombre + '"></div>';
+  body += '<div class="grid-2">';
+  body += '<div class="form-group"><label class="form-label">Color</label><input type="color" class="form-input" id="earea-color" value="' + a.color + '" style="height:38px;padding:3px"></div>';
+  body += '<div class="form-group"><label class="form-label">¿Permite polivalencias?</label><select class="form-input" id="earea-poliv">';
+  body += '<option value="true"' + (a.permite_polivalencia !== false ? ' selected' : '') + '>Sí</option>';
+  body += '<option value="false"' + (a.permite_polivalencia === false ? ' selected' : '') + '>No</option>';
+  body += '</select></div></div>';
+  openModal('Editar área', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="guardarArea(\'' + areaId + '\')">Guardar</button>');
+}
+
+async function guardarArea(areaId) {
+  var nombre = document.getElementById('earea-nombre').value.trim();
+  if (!nombre) { showToast('Indica el nombre', 'error'); return; }
+  try {
+    await sbUpdate('areas', areaId, {
+      nombre: nombre,
+      color: document.getElementById('earea-color').value,
+      permite_polivalencia: document.getElementById('earea-poliv').value === 'true'
+    });
+    state.areas = await sbQuery('areas', { select: '*', filters: ['planta_id=eq.' + PLANTA_ID], order: 'orden.asc' });
+    closeModal(); showToast('Área actualizada', 'success'); renderConfiguracion();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function eliminarArea(areaId, nombre) {
+  var empsEnArea = state.empleados.filter(function(e) { return e.area_principal_id === areaId; }).length;
+  if (empsEnArea > 0) {
+    if (!confirm('El área "' + nombre + '" tiene ' + empsEnArea + ' empleados con ella como principal. ¿Eliminar igualmente?')) return;
+  } else {
+    if (!confirm('¿Eliminar el área "' + nombre + '"?')) return;
+  }
+  try {
+    // Delete polivalencias linked to this area
+    var polvs = await sbQuery('polivalencias', { select: 'id', filters: ['area_id=eq.' + areaId] });
+    for (var p of (polvs || [])) try { await sbDelete('polivalencias', p.id); } catch(e) {}
+    await sbDelete('areas', areaId);
+    state.areas = state.areas.filter(function(a) { return a.id !== areaId; });
+    showToast('Área eliminada', 'success'); renderConfiguracion();
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
 }
 
 // =====================================================================
