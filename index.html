@@ -2729,29 +2729,43 @@ async function aprobarTodasPendientes() {
 // =====================================================================
 async function renderIntercambios() {
   let intercambios = [];
-  try { var allIc = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 100 }); var empIdsIc = state.empleados.map(function(e) { return e.id; }); intercambios = allIc.filter(function(ic) { return empIdsIc.includes(ic.solicitante_id) || empIdsIc.includes(ic.receptor_id); }); } catch (e) {}
+  try { var allIc = await sbQuery('intercambios', { select: '*', order: 'created_at.desc', limit: 200 }); var empIdsIc = state.empleados.map(function(e) { return e.id; }); intercambios = allIc.filter(function(ic) { return empIdsIc.includes(ic.solicitante_id) || empIdsIc.includes(ic.receptor_id); }); } catch (e) {}
 
+  if (!state.icTab) state.icTab = 'pendientes';
+  var hoy = todayStr();
   var horarios = { M:'06-14h', T:'14-22h', N:'22-06h', R:'Refuerzo', S:'06-18h', L:'18-06h', D:'Descanso', V:'Vacaciones' };
 
-  let html = '<div style="display:flex;justify-content:space-between;margin-bottom:20px">';
+  var pendientes = intercambios.filter(function(ic) { return ic.estado === 'pendiente'; });
+  var aceptados = intercambios.filter(function(ic) { return ic.estado === 'aceptado' && ic.fecha_solicitante >= hoy; });
+  var archivo = intercambios.filter(function(ic) { return ic.estado === 'rechazado' || (ic.estado === 'aceptado' && ic.fecha_solicitante < hoy); });
+
+  var lista = state.icTab === 'pendientes' ? pendientes : state.icTab === 'aceptados' ? aceptados : archivo;
+
+  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">';
   html += '<h2 style="font-size:15px;font-weight:600">Intercambios de turno</h2></div>';
 
-  if (intercambios.length === 0) {
-    html += '<div class="card"><div class="card-body"><div class="empty-state"><p>Sin intercambios registrados</p></div></div></div>';
+  // Tabs
+  html += '<div class="config-tabs" style="margin-bottom:16px">';
+  html += '<button class="config-tab' + (state.icTab==='pendientes'?' active':'') + '" onclick="state.icTab=\'pendientes\';renderIntercambios()">Pendientes <span style="font-size:10px;background:' + (pendientes.length>0?'#FEF3C7;color:#92400E':'var(--bg);color:var(--text3)') + ';padding:1px 6px;border-radius:10px;margin-left:4px">' + pendientes.length + '</span></button>';
+  html += '<button class="config-tab' + (state.icTab==='aceptados'?' active':'') + '" onclick="state.icTab=\'aceptados\';renderIntercambios()">Aceptados <span style="font-size:10px;background:' + (aceptados.length>0?'#DCFCE7;color:#166534':'var(--bg);color:var(--text3)') + ';padding:1px 6px;border-radius:10px;margin-left:4px">' + aceptados.length + '</span></button>';
+  html += '<button class="config-tab' + (state.icTab==='archivo'?' active':'') + '" onclick="state.icTab=\'archivo\';renderIntercambios()">Archivo <span style="font-size:10px;background:var(--bg);color:var(--text3);padding:1px 6px;border-radius:10px;margin-left:4px">' + archivo.length + '</span></button>';
+  html += '</div>';
+
+  if (lista.length === 0) {
+    html += '<div class="card"><div class="card-body"><div class="empty-state"><p>Sin intercambios ' + state.icTab + '</p></div></div></div>';
     document.getElementById('page-intercambios').innerHTML = html;
     return;
   }
 
   html += '<div style="display:flex;flex-direction:column;gap:12px">';
-  intercambios.forEach(function(ic) {
+  lista.forEach(function(ic) {
     var sol = state.empleados.find(function(e) { return e.id === ic.solicitante_id; });
     var rec = state.empleados.find(function(e) { return e.id === ic.receptor_id; });
     var areaSol = ic.area_solicitante_id ? getArea(ic.area_solicitante_id) : null;
     var areaRec = ic.area_receptor_id ? getArea(ic.area_receptor_id) : null;
 
     html += '<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">';
-
-    // Header: fecha + estado + acciones
+    // Header
     html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border)">';
     html += '<span style="font-size:13px;font-weight:700">📅 ' + formatDateES(ic.fecha_solicitante) + '</span>';
     html += '<div style="display:flex;align-items:center;gap:8px">';
@@ -2759,8 +2773,7 @@ async function renderIntercambios() {
     html += '<button class="btn btn-sm btn-ghost" onclick="modalEditarIntercambio(\'' + ic.id + '\')">✎</button>';
     html += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" onclick="eliminarIntercambio(\'' + ic.id + '\',\'' + ic.solicitante_id + '\',\'' + ic.receptor_id + '\',\'' + ic.fecha_solicitante + '\',\'' + (ic.fecha_receptor||ic.fecha_solicitante) + '\')">✕</button>';
     html += '</div></div>';
-
-    // Solicitante block (blue)
+    // SOL block
     html += '<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:#EFF6FF;border-bottom:1px solid var(--border)">';
     html += '<div style="width:36px;height:36px;border-radius:8px;background:#2563EB;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;flex-shrink:0;text-align:center;line-height:1.2">SOL.</div>';
     html += '<div><div style="font-size:12px;font-weight:700;color:#1E40AF">' + (sol ? sol.nombre + ' ' + sol.apellidos : '?') + ' cubre</div>';
@@ -2769,8 +2782,7 @@ async function renderIntercambios() {
     html += '<span style="font-size:12px;color:var(--text2)">' + (horarios[ic.turno_solicitante]||'') + '</span>';
     if (areaSol) html += '<span style="font-size:12px;font-weight:600">· ' + areaSol.nombre + '</span>';
     html += '</div></div></div>';
-
-    // Receptor block (yellow)
+    // REC block
     html += '<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:#FEF9C3">';
     html += '<div style="width:36px;height:36px;border-radius:8px;background:#D97706;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:700;flex-shrink:0;text-align:center;line-height:1.2">REC.</div>';
     html += '<div><div style="font-size:12px;font-weight:700;color:#92400E">' + (rec ? rec.nombre + ' ' + rec.apellidos : '?') + ' cubre</div>';
@@ -2779,11 +2791,7 @@ async function renderIntercambios() {
     html += '<span style="font-size:12px;color:var(--text2)">' + (horarios[ic.turno_receptor]||'') + '</span>';
     if (areaRec) html += '<span style="font-size:12px;font-weight:600">· ' + areaRec.nombre + '</span>';
     html += '</div></div></div>';
-
-    // Notes if any
-    if (ic.notas) {
-      html += '<div style="padding:8px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--text2)">📝 ' + ic.notas + '</div>';
-    }
+    if (ic.notas) html += '<div style="padding:8px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--text2)">📝 ' + ic.notas + '</div>';
     html += '</div>';
   });
   html += '</div>';
