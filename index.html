@@ -925,20 +925,41 @@ td.col-descubierto { background: #FEF2F2 !important; }
     <div class="login-tabs">
       <button class="login-tab active" onclick="switchLoginTab('gestor')">Gestor</button>
       <button class="login-tab" onclick="switchLoginTab('empleado')">Empleado</button>
+      <button class="login-tab" onclick="switchLoginTab('registro')">Registrarse</button>
     </div>
     <div id="login-gestor">
       <div class="form-group">
         <label class="form-label">Email</label>
-        <input type="email" class="form-input" id="g-email" placeholder="gestor@empresa.com" >
+        <input type="email" class="form-input" id="g-email" placeholder="gestor@empresa.com">
       </div>
       <div class="form-group">
         <label class="form-label">Contraseña</label>
         <div class="pass-wrap">
-          <input type="password" class="form-input" id="g-pass" placeholder="••••••••" >
+          <input type="password" class="form-input" id="g-pass" placeholder="••••••••">
           <button type="button" class="pass-toggle" onclick="togglePass('g-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
         </div>
       </div>
       <button class="btn-primary" onclick="loginGestor()">Acceder como Gestor</button>
+      <p style="text-align:center;font-size:12px;color:var(--text3);margin-top:12px">¿No tienes cuenta? <a href="#" onclick="switchLoginTab('registro');return false" style="color:var(--primary-light)">Regístrate aquí</a></p>
+    </div>
+    <div id="login-registro" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Nombre completo</label>
+        <input type="text" class="form-input" id="r-nombre" placeholder="Tu nombre y apellidos">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" class="form-input" id="r-email" placeholder="tu@empresa.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contraseña</label>
+        <div class="pass-wrap">
+          <input type="password" class="form-input" id="r-pass" placeholder="Mínimo 6 caracteres">
+          <button type="button" class="pass-toggle" onclick="togglePass('r-pass',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="registrarGestor()">Crear cuenta</button>
+      <p style="text-align:center;font-size:12px;color:var(--text3);margin-top:12px">¿Ya tienes cuenta? <a href="#" onclick="switchLoginTab('gestor');return false" style="color:var(--primary-light)">Inicia sesión</a></p>
     </div>
     <div id="login-empleado" style="display:none">
       <div class="form-group">
@@ -1201,11 +1222,54 @@ function calcTurno(empleado, fechaStr) {
 // =====================================================================
 function switchLoginTab(tab) {
   document.querySelectorAll('.login-tab').forEach((t, i) => {
-    t.classList.toggle('active', (i === 0 && tab === 'gestor') || (i === 1 && tab === 'empleado'));
+    t.classList.toggle('active', (i === 0 && tab === 'gestor') || (i === 1 && tab === 'empleado') || (i === 2 && tab === 'registro'));
   });
   document.getElementById('login-gestor').style.display = tab === 'gestor' ? '' : 'none';
   document.getElementById('login-empleado').style.display = tab === 'empleado' ? '' : 'none';
+  document.getElementById('login-registro').style.display = tab === 'registro' ? '' : 'none';
   document.getElementById('login-error').textContent = '';
+}
+
+async function sbSignUp(email, password) {
+  const res = await fetch(SUPABASE_URL + '/auth/v1/signup', {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
+  return res.json();
+}
+
+async function registrarGestor() {
+  var nombre = document.getElementById('r-nombre').value.trim();
+  var email = document.getElementById('r-email').value.trim();
+  var pass = document.getElementById('r-pass').value;
+  var errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+
+  if (!nombre) { errEl.textContent = 'Indica tu nombre'; return; }
+  if (!email || !email.includes('@')) { errEl.textContent = 'Email no válido'; return; }
+  if (!pass || pass.length < 6) { errEl.textContent = 'La contraseña debe tener al menos 6 caracteres'; return; }
+
+  try {
+    var r = await sbSignUp(email, pass);
+    if (r.error) { errEl.textContent = r.error.message || r.msg || 'Error al registrar'; return; }
+    if (!r.user && !r.id) { errEl.textContent = 'No se pudo crear la cuenta. ¿Ya existe este email?'; return; }
+
+    authToken = r.access_token;
+    var userId = r.user ? r.user.id : r.id;
+
+    // Create gestor row (ignore error if already exists)
+    try { await sbInsert('gestores', { id: userId, nombre: nombre, email: email, rol: 'gestor', activo: true }); } catch(eg) {}
+
+    // Enter app — no plants yet, selector will show create first plant
+    state.plantasDisponibles = [];
+    var user = { tipo: 'gestor', id: userId, nombre: nombre, email: email };
+    state._pendingUser = user;
+    mostrarSelectorPlanta(user, []);
+
+  } catch(e) {
+    errEl.textContent = 'Error: ' + (e.message || 'Inténtalo de nuevo');
+  }
 }
 
 async function loginGestor() {
@@ -1222,62 +1286,32 @@ async function loginGestor() {
       return;
     }
     authToken = r.access_token;
-    const nombre = email.split('@')[0];
     const userId = r.user.id;
 
-    // Check if super admin
-    var esSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
-    state.isSuperAdmin = esSuperAdmin;
+    // Get gestor name
+    var gestorRows = await sbQuery('gestores', { select: 'nombre', filters: ['id=eq.' + userId] });
+    var nombre = (gestorRows && gestorRows[0]) ? gestorRows[0].nombre : email.split('@')[0];
 
     // Ensure gestor row exists
-    try {
-      var existG = await sbQuery('gestores', { select: 'id', filters: ['id=eq.' + userId] });
-      if (!existG || existG.length === 0) {
-        await sbInsert('gestores', { id: userId, nombre: nombre, email: email, rol: esSuperAdmin ? 'superadmin' : 'gestor' });
-      }
-    } catch(eg) {}
-
-    // Ensure super_admins row exists
-    if (esSuperAdmin) {
-      try {
-        var existSA = await sbQuery('super_admins', { select: 'id', filters: ['id=eq.' + userId] });
-        if (!existSA || existSA.length === 0) {
-          await sbInsert('super_admins', { id: userId, email: email, nombre: nombre });
-        }
-      } catch(esa) {}
+    if (!gestorRows || gestorRows.length === 0) {
+      try { await sbInsert('gestores', { id: userId, nombre: email.split('@')[0], email: email, rol: 'gestor', activo: true }); } catch(eg) {}
     }
 
-    // Get available plants
-    var plantas = [];
-    if (esSuperAdmin) {
-      // Super admin sees all plants
-      plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] });
-    } else {
-      // Normal gestor: check gestor_plantas
-      var gp = await sbQuery('gestor_plantas', { select: 'planta_id', filters: ['gestor_id=eq.' + userId] });
-      if (gp && gp.length > 0) {
-        var plantaIds = gp.map(function(g) { return g.planta_id; });
-        plantas = await sbQuery('plantas', { select: '*', filters: ['activa=eq.true'] });
-        plantas = plantas.filter(function(p) { return plantaIds.includes(p.id); });
-      }
-    }
+    // Get plants by gestor_id
+    var plantas = await sbQuery('plantas', { select: '*', filters: ['gestor_id=eq.' + userId, 'activa=eq.true'] }) || [];
 
     state.plantasDisponibles = plantas;
+    var user = { tipo: 'gestor', id: userId, nombre: nombre, email: email };
+    state._pendingUser = user;
 
-    if (plantas.length === 0 && !esSuperAdmin) {
-      errEl.textContent = 'No tienes plantas asignadas. Contacta al administrador.';
-      return;
-    }
-
-    if (plantas.length === 1 && !esSuperAdmin) {
-      // Single plant, normal gestor → enter directly
+    if (plantas.length === 1) {
       PLANTA_ID = plantas[0].id;
-      enterApp({ tipo: 'gestor', id: userId, nombre: nombre, email: email });
-    } else if (esSuperAdmin || plantas.length > 1) {
-      // Super admin always sees selector, or gestor with multiple plants
-      mostrarSelectorPlanta({ tipo: esSuperAdmin ? 'superadmin' : 'gestor', id: userId, nombre: nombre, email: email }, plantas);
+      enterApp(user);
+    } else {
+      // 0 plants → create first plant; >1 plants → selector
+      mostrarSelectorPlanta(user, plantas);
     }
-  } catch (e) {
+  } catch(e) {
     errEl.textContent = 'Error de conexión';
     console.error('Login error:', e);
   }
@@ -1336,14 +1370,18 @@ async function eliminarPlantaSelector(plantaId, nombre) {
 async function crearNuevaPlantaSelector() {
   var nombre = document.getElementById('np-nombre') ? document.getElementById('np-nombre').value.trim() : '';
   if (!nombre) { alert('Indica el nombre de la planta'); return; }
+  var userId = state._pendingUser ? state._pendingUser.id : null;
+  if (!userId) { alert('Error de sesión'); return; }
   try {
-    var result = await sbInsert('plantas', { nombre: nombre, activa: true });
-    // Get the new plant id
-    var nuevaPlanta = await sbQuery('plantas', { select: '*', filters: ['nombre=eq.' + nombre], order: 'created_at.desc', limit: 1 });
-    if (nuevaPlanta && nuevaPlanta[0]) {
-      state.plantasDisponibles.push(nuevaPlanta[0]);
+    await sbInsert('plantas', { nombre: nombre, activa: true, gestor_id: userId });
+    var plantas = await sbQuery('plantas', { select: '*', filters: ['gestor_id=eq.' + userId, 'activa=eq.true'] }) || [];
+    state.plantasDisponibles = plantas;
+    if (plantas.length === 1) {
+      PLANTA_ID = plantas[0].id;
+      enterApp(state._pendingUser);
+    } else {
+      mostrarSelectorPlanta(state._pendingUser, plantas);
     }
-    mostrarSelectorPlanta(state._pendingUser, state.plantasDisponibles);
   } catch(e) { alert('Error: ' + e.message); }
 }
 
