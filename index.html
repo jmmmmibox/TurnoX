@@ -3835,7 +3835,7 @@ function renderConfiguracion() {
 
   if (tab === 'festivos') {
     const sorted = [...state.festivos].sort((a, b) => a.fecha.localeCompare(b.fecha));
-    html += '<div class="card"><div class="card-header"><span class="card-title">Festivos 2026</span>';
+    html += '<div class="card"><div class="card-header"><span class="card-title">Días Festivos del Año</span>';
     html += '<button class="btn btn-sm btn-blue" onclick="modalNuevoFestivo()">+ Añadir</button></div><div class="card-body">';
     sorted.forEach(f => {
       html += '<div class="festivo-item"><div class="festivo-info">';
