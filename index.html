@@ -1375,9 +1375,14 @@ async function eliminarPlantaSelector(plantaId, nombre) {
     // 2. Delete all empleado-dependent data
     var empIds=(await sbQuery('empleados',{select:'id',filters:['planta_id=eq.'+plantaId]})||[]).map(function(e){return e.id;});
     for(var eid of empIds){
-      for(var tbl of ['notificaciones','solicitudes_dias_libres','ausencias','vacaciones_solicitudes','turnos','polivalencias','intercambios']){
+      for(var tbl of ['ausencias','vacaciones_solicitudes','turnos','polivalencias','solicitudes_dias_libres']){
         try{var rr=await sbQuery(tbl,{select:'id',filters:['empleado_id=eq.'+eid]});for(var x of(rr||[]))try{await sbDelete(tbl,x.id);}catch(ex){}}catch(ex){}
       }
+      // notificaciones usa destinatario_empleado_id
+      try{var nn=await sbQuery('notificaciones',{select:'id',filters:['destinatario_empleado_id=eq.'+eid]});for(var x of(nn||[]))try{await sbDelete('notificaciones',x.id);}catch(ex){}}catch(ex){}
+      // intercambios usa solicitante_id y receptor_id
+      try{var ii=await sbQuery('intercambios',{select:'id',filters:['solicitante_id=eq.'+eid]});for(var x of(ii||[]))try{await sbDelete('intercambios',x.id);}catch(ex){}}catch(ex){}
+      try{var ii2=await sbQuery('intercambios',{select:'id',filters:['receptor_id=eq.'+eid]});for(var x of(ii2||[]))try{await sbDelete('intercambios',x.id);}catch(ex){}}catch(ex){}
       try{await sbDelete('empleados',eid);}catch(ex){}
     }
     // 3. Delete rondas and configs
