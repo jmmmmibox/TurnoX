@@ -2879,11 +2879,9 @@ async function enviarSolicitudDiaLibre() {
     });
     // Notificar al gestor
     try {
-      var gestores = await sbQuery('gestores', { select: 'id', limit: 5 });
-      if (gestores) {
-        for (var g = 0; g < gestores.length; g++) {
-          await sbInsert('notificaciones', { destinatario_gestor_id: gestores[g].id, tipo: 'dias-libres', titulo: 'Solicitud de día libre', mensaje: (emp ? emp.nombre + ' ' + emp.apellidos : 'Un empleado') + ' solicita ' + dias + ' día(s) libre(s) — ' + document.getElementById('sdl-concepto').value });
-        }
+      var plantaRow = await sbQuery('plantas', { select: 'gestor_id', filters: ['id=eq.' + PLANTA_ID] });
+      if (plantaRow && plantaRow[0] && plantaRow[0].gestor_id) {
+        await sbInsert('notificaciones', { destinatario_gestor_id: plantaRow[0].gestor_id, tipo: 'dias-libres', titulo: 'Solicitud de día libre', mensaje: (emp ? emp.nombre + ' ' + emp.apellidos : 'Un empleado') + ' solicita ' + dias + ' día(s) libre(s) — ' + document.getElementById('sdl-concepto').value });
       }
     } catch(en) {}
     closeModal();
@@ -4786,10 +4784,10 @@ async function enviarIntercambio() {
     } catch(en1) {}
     // Notificar al gestor
     try {
-      var gestores2 = await sbQuery('gestores', { select: 'id', limit: 5 });
-      if (gestores2) { for (var g2 = 0; g2 < gestores2.length; g2++) {
-        await sbInsert('notificaciones', { destinatario_gestor_id: gestores2[g2].id, tipo: 'intercambio', titulo: 'Nuevo intercambio', mensaje: (emp ? emp.nombre + ' ' + emp.apellidos : 'Un empleado') + ' propone intercambio para el ' + formatDateES(fecha) });
-      }}
+      var plantaRow2 = await sbQuery('plantas', { select: 'gestor_id', filters: ['id=eq.' + PLANTA_ID] });
+      if (plantaRow2 && plantaRow2[0] && plantaRow2[0].gestor_id) {
+        await sbInsert('notificaciones', { destinatario_gestor_id: plantaRow2[0].gestor_id, tipo: 'intercambio', titulo: 'Nuevo intercambio', mensaje: (emp ? emp.nombre + ' ' + emp.apellidos : 'Un empleado') + ' propone intercambio para el ' + formatDateES(fecha) });
+      }
     } catch(en2) {}
     closeModal();
     showToast('Intercambio propuesto', 'success');
@@ -5011,11 +5009,9 @@ async function enviarVacDesdeCalendario(rondaId, diasRonda, numRonda) {
     state.vacDiasSeleccionados = [];
     // Notificar al gestor
     try {
-      var gestores = await sbQuery('gestores', { select: 'id', limit: 5 });
-      if (gestores) {
-        for (var g = 0; g < gestores.length; g++) {
-          await sbInsert('notificaciones', { destinatario_gestor_id: gestores[g].id, tipo: 'vacaciones', titulo: 'Nueva solicitud de vacaciones', mensaje: emp.nombre + ' ' + emp.apellidos + ' solicita vacaciones del ' + formatDateES(inicio) + ' al ' + formatDateES(fin) });
-        }
+      var plantaRow3 = await sbQuery('plantas', { select: 'gestor_id', filters: ['id=eq.' + PLANTA_ID] });
+      if (plantaRow3 && plantaRow3[0] && plantaRow3[0].gestor_id) {
+        await sbInsert('notificaciones', { destinatario_gestor_id: plantaRow3[0].gestor_id, tipo: 'vacaciones', titulo: 'Nueva solicitud de vacaciones', mensaje: emp.nombre + ' ' + emp.apellidos + ' solicita vacaciones del ' + formatDateES(inicio) + ' al ' + formatDateES(fin) });
       }
     } catch(en) {}
     showToast('Solicitud enviada', 'success');
