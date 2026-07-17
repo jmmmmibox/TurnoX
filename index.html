@@ -6897,6 +6897,68 @@ document.addEventListener('click', e => {
     dd.style.display = 'none';
   }
 });
+
+// Detect Supabase password recovery token in URL hash
+(function() {
+  var hash = window.location.hash;
+  if (!hash) return;
+  var params = {};
+  hash.replace('#', '').split('&').forEach(function(p) {
+    var kv = p.split('=');
+    params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+  });
+  if (params.type === 'recovery' && params.access_token) {
+    // Store token and show recovery form
+    window.addEventListener('DOMContentLoaded', function() {
+      mostrarFormularioRecuperacion(params.access_token);
+    });
+    if (document.readyState !== 'loading') {
+      setTimeout(function() { mostrarFormularioRecuperacion(params.access_token); }, 100);
+    }
+    // Clean URL
+    history.replaceState(null, '', window.location.pathname);
+  }
+})();
+
+function mostrarFormularioRecuperacion(token) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+  var sel = document.getElementById('planta-selector');
+  sel.style.display = 'flex';
+  var html = '<div class="login-box" style="max-width:400px">';
+  html += '<div class="login-logo"><div class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>';
+  html += '<h1>TurnoX</h1><p>Nueva contraseña</p></div>';
+  html += '<div class="form-group"><label class="form-label">Nueva contraseña</label>';
+  html += '<div class="pass-wrap"><input type="password" class="form-input" id="rec-pass1" placeholder="Mínimo 6 caracteres">';
+  html += '<button type="button" class="pass-toggle" onclick="togglePass(\'rec-pass1\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  html += '<div class="form-group"><label class="form-label">Repetir contraseña</label>';
+  html += '<div class="pass-wrap"><input type="password" class="form-input" id="rec-pass2" placeholder="Repite la contraseña">';
+  html += '<button type="button" class="pass-toggle" onclick="togglePass(\'rec-pass2\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  html += '<p id="rec-error" style="color:var(--danger);font-size:12px;text-align:center;min-height:16px"></p>';
+  html += '<button class="btn-primary" onclick="guardarPassRecuperacion(\'' + token + '\')">Guardar nueva contraseña</button>';
+  html += '</div>';
+  sel.innerHTML = html;
+}
+
+async function guardarPassRecuperacion(token) {
+  var p1 = document.getElementById('rec-pass1').value;
+  var p2 = document.getElementById('rec-pass2').value;
+  var errEl = document.getElementById('rec-error');
+  if (!p1 || p1.length < 6) { errEl.textContent = 'Mínimo 6 caracteres'; return; }
+  if (p1 !== p2) { errEl.textContent = 'Las contraseñas no coinciden'; return; }
+  try {
+    var r = await fetch(SUPABASE_URL + '/auth/v1/user', {
+      method: 'PUT',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ password: p1 })
+    });
+    var data = await r.json();
+    if (data.error) { errEl.textContent = 'Error: ' + (data.error.message || 'inténtalo de nuevo'); return; }
+    document.getElementById('planta-selector').style.display = 'none';
+    document.getElementById('login-screen').style.display = 'flex';
+    alert('Contraseña cambiada correctamente. Ya puedes entrar con tu nueva contraseña.');
+  } catch(e) { errEl.textContent = 'Error: ' + e.message; }
+}
 </script>
 </body>
 </html>
