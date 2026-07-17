@@ -956,6 +956,7 @@ td.col-descubierto { background: #FEF2F2 !important; }
       </div>
       <button class="btn-primary" onclick="loginGestor()">Acceder como Gestor</button>
       <p style="text-align:center;font-size:12px;color:var(--text3);margin-top:12px">¿No tienes cuenta? <a href="#" onclick="switchLoginTab('registro');return false" style="color:var(--primary-light)">Regístrate aquí</a></p>
+      <p style="text-align:center;font-size:12px;color:var(--text3);margin-top:4px"><a href="#" onclick="olvidasteTuPass();return false" style="color:var(--text2)">¿Olvidaste tu contraseña?</a></p>
     </div>
     <div id="login-registro" style="display:none">
       <div class="form-group">
@@ -1304,13 +1305,23 @@ async function loginGestor() {
     const userId = r.user.id;
 
     // Get gestor name
-    var gestorRows = await sbQuery('gestores', { select: 'nombre', filters: ['id=eq.' + userId] });
+    var gestorRows = await sbQuery('gestores', { select: 'nombre,activo', filters: ['id=eq.' + userId] });
     var nombre = (gestorRows && gestorRows[0]) ? gestorRows[0].nombre : email.split('@')[0];
+
+    // Check if blocked
+    if (gestorRows && gestorRows[0] && gestorRows[0].activo === false) {
+      errEl.textContent = 'Tu cuenta está bloqueada. Contacta con el administrador.';
+      return;
+    }
 
     // Ensure gestor row exists
     if (!gestorRows || gestorRows.length === 0) {
       try { await sbInsert('gestores', { id: userId, nombre: email.split('@')[0], email: email, rol: 'gestor', activo: true }); } catch(eg) {}
     }
+
+    // Check if superadmin
+    var esSuperAdmin = email.toLowerCase() === 'nadius76@hotmail.com';
+    state.isSuperAdmin = esSuperAdmin;
 
     // Get plants by gestor_id
     var plantas = await sbQuery('plantas', { select: '*', filters: ['gestor_id=eq.' + userId, 'activa=eq.true'] }) || [];
@@ -1319,11 +1330,10 @@ async function loginGestor() {
     var user = { tipo: 'gestor', id: userId, nombre: nombre, email: email };
     state._pendingUser = user;
 
-    if (plantas.length === 1) {
+    if (!esSuperAdmin && plantas.length === 1) {
       PLANTA_ID = plantas[0].id;
       enterApp(user);
     } else {
-      // 0 plants → create first plant; >1 plants → selector
       mostrarSelectorPlanta(user, plantas);
     }
   } catch(e) {
@@ -1359,6 +1369,13 @@ function mostrarSelectorPlanta(user, plantas) {
     html += '<button class="btn btn-ghost" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'none\'">Cancelar</button>';
     html += '</div></div>';
     html += '<button class="btn btn-outline w-full" style="border-style:dashed;color:var(--text2)" onclick="document.getElementById(\'nueva-planta-form\').style.display=\'flex\'">+ Crear nueva planta</button>';
+    html += '</div>';
+  }
+
+  // Admin panel button for superadmin
+  if (state.isSuperAdmin) {
+    html += '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
+    html += '<button class="btn btn-outline w-full" style="color:var(--primary-light)" onclick="mostrarPanelAdmin()">⚙️ Panel de Administración</button>';
     html += '</div>';
   }
 
@@ -1429,6 +1446,146 @@ async function crearNuevaPlantaSelector() {
     } else {
       mostrarSelectorPlanta(state._pendingUser, plantas);
     }
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function mostrarPanelAdmin() {
+  var sel = document.getElementById('planta-selector');
+  var gestores = [];
+  try { gestores = await sbQuery('gestores', { select: '*', order: 'nombre.asc' }); } catch(e) {}
+
+  var html = '<div class="login-box" style="max-width:650px">';
+  html += '<div class="login-logo"><div class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>';
+  html += '<h1>TurnoX</h1><p>Panel de Administración</p></div>';
+
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">';
+  html += '<span style="font-size:13px;font-weight:600">Gestores (' + gestores.length + ')</span>';
+  html += '<button class="btn btn-sm btn-blue" onclick="modalCrearGestorAdmin()">+ Crear gestor</button></div>';
+
+  html += '<div style="display:flex;flex-direction:column;gap:6px;max-height:350px;overflow-y:auto">';
+  gestores.forEach(function(g) {
+    var activo = g.activo !== false;
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:' + (activo ? 'white' : '#FEF2F2') + ';border:1px solid var(--border);border-radius:8px">';
+    html += '<div style="flex:1"><div style="font-size:13px;font-weight:600">' + (g.nombre || '—') + '</div>';
+    html += '<div style="font-size:11px;color:var(--text2)">' + (g.email || '—') + '</div></div>';
+    html += '<span class="status-badge ' + (activo ? 'open' : 'closed') + '">' + (activo ? 'Activo' : 'Bloqueado') + '</span>';
+    html += '<button class="btn btn-sm btn-ghost" title="' + (activo ? 'Bloquear' : 'Habilitar') + '" onclick="toggleGestorAdmin(\'' + g.id + '\',' + activo + ')">' + (activo ? '🔒' : '✓') + '</button>';
+    html += '<button class="btn btn-sm btn-ghost" title="Resetear contraseña" onclick="resetearPassGestorAdmin(\'' + (g.email||'') + '\')">🔑</button>';
+    html += '<button class="btn btn-sm btn-ghost" style="color:var(--danger)" title="Eliminar" onclick="eliminarGestorAdmin(\'' + g.id + '\',\'' + (g.nombre||'').replace(/'/g,"\\'") + '\')">✕</button>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  html += '<button class="btn btn-ghost w-full" style="margin-top:16px" onclick="mostrarSelectorPlanta(state._pendingUser,state.plantasDisponibles)">← Volver</button>';
+  html += '</div>';
+  sel.innerHTML = html;
+}
+
+async function modalCrearGestorAdmin() {
+  var existing = document.getElementById('global-modal');
+  if (existing) existing.remove();
+  var body = '<div class="form-group"><label class="form-label">Nombre completo</label><input class="form-input" id="cg-nombre" placeholder="Nombre del gestor"></div>';
+  body += '<div class="form-group"><label class="form-label">Email</label><input class="form-input" id="cg-email" type="email" placeholder="gestor@empresa.com"></div>';
+  body += '<div class="form-group"><label class="form-label">Contraseña inicial</label><input class="form-input" id="cg-pass" type="password" placeholder="Mínimo 6 caracteres"></div>';
+  body += '<div class="alert alert-info"><span>Se creará la cuenta en Supabase Auth. El gestor puede cambiar su contraseña después.</span></div>';
+
+  var m = document.createElement('div');
+  m.className = 'modal-overlay'; m.id = 'global-modal';
+  m.onclick = function() { document.getElementById('global-modal').remove(); };
+  m.innerHTML = '<div class="modal" onclick="event.stopPropagation()"><div class="modal-header"><span class="modal-title">Crear gestor</span></div>' +
+    '<div class="modal-body">' + body + '</div>' +
+    '<div class="modal-footer"><button class="btn btn-outline" onclick="document.getElementById(\'global-modal\').remove()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="crearGestorDesdeAdmin()">Crear</button></div></div>';
+  document.body.appendChild(m);
+}
+
+async function crearGestorDesdeAdmin() {
+  var nombre = document.getElementById('cg-nombre').value.trim();
+  var email = document.getElementById('cg-email').value.trim();
+  var pass = document.getElementById('cg-pass').value;
+  if (!nombre || !email || !pass || pass.length < 6) { alert('Todos los campos son obligatorios. Contraseña mínimo 6 caracteres.'); return; }
+  try {
+    var r = await sbSignUp(email, pass);
+    if (r.error) { alert('Error: ' + (r.error.message || r.msg)); return; }
+    var userId = r.user ? r.user.id : r.id;
+    // Confirm email automatically
+    try { await sbUpdate('gestores', userId, { nombre: nombre, email: email, activo: true, rol: 'gestor' }); } catch(e) {}
+    try { await sbInsert('gestores', { id: userId, nombre: nombre, email: email, activo: true, rol: 'gestor' }); } catch(e) {}
+    document.getElementById('global-modal').remove();
+    alert('Gestor creado. Recuerda confirmar el email en Supabase Auth si es necesario.');
+    mostrarPanelAdmin();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function toggleGestorAdmin(gestorId, activo) {
+  try {
+    await sbUpdate('gestores', gestorId, { activo: !activo });
+    mostrarPanelAdmin();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function eliminarGestorAdmin(gestorId, nombre) {
+  if (!confirm('¿Eliminar el gestor "' + nombre + '"?\n\nSus plantas y datos NO se eliminarán.')) return;
+  try {
+    await sbDelete('gestores', gestorId);
+    mostrarPanelAdmin();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function resetearPassGestorAdmin(email) {
+  if (!email) { alert('Este gestor no tiene email registrado'); return; }
+  if (!confirm('¿Enviar email de recuperación de contraseña a ' + email + '?')) return;
+  try {
+    var r = await fetch(SUPABASE_URL + '/auth/v1/recover', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email })
+    });
+    alert('Email de recuperación enviado a ' + email);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+function modalCambiarPassGestor() {
+  var body = '<div class="form-group"><label class="form-label">Nueva contraseña</label>';
+  body += '<div class="pass-wrap"><input type="password" class="form-input" id="cpg-new" placeholder="Mínimo 6 caracteres">';
+  body += '<button type="button" class="pass-toggle" onclick="togglePass(\'cpg-new\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  body += '<div class="form-group"><label class="form-label">Repetir contraseña</label>';
+  body += '<div class="pass-wrap"><input type="password" class="form-input" id="cpg-new2" placeholder="Repite la contraseña">';
+  body += '<button type="button" class="pass-toggle" onclick="togglePass(\'cpg-new2\',this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>';
+  openModal('Cambiar contraseña', body,
+    '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>' +
+    '<button class="btn btn-blue" onclick="guardarNuevaPassGestor()">Guardar</button>');
+}
+
+async function guardarNuevaPassGestor() {
+  var p1 = document.getElementById('cpg-new').value;
+  var p2 = document.getElementById('cpg-new2').value;
+  if (!p1 || p1.length < 6) { showToast('Mínimo 6 caracteres', 'error'); return; }
+  if (p1 !== p2) { showToast('Las contraseñas no coinciden', 'error'); return; }
+  try {
+    // Use Supabase Auth update user
+    var r = await fetch(SUPABASE_URL + '/auth/v1/user', {
+      method: 'PUT',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken },
+      body: JSON.stringify({ password: p1 })
+    });
+    var data = await r.json();
+    if (data.error) { showToast('Error: ' + data.error.message, 'error'); return; }
+    closeModal();
+    showToast('Contraseña actualizada correctamente', 'success');
+  } catch(e) { showToast('Error: ' + e.message, 'error'); }
+}
+
+async function olvidasteTuPass() {
+  var email = prompt('Introduce tu email para recibir el enlace de recuperación:');
+  if (!email) return;
+  try {
+    await fetch(SUPABASE_URL + '/auth/v1/recover', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email })
+    });
+    alert('Si ese email existe, recibirás un enlace para restablecer tu contraseña.');
   } catch(e) { alert('Error: ' + e.message); }
 }
 
@@ -1697,6 +1854,7 @@ const NAV_GESTOR = [
   { separator: 'Sistema' },
   { id: 'informes', label: 'Informes', icon: 'bar-chart' },
   { id: 'configuracion', label: 'Configuración', icon: 'settings' },
+  { id: 'cambiar-pass', label: 'Cambiar contraseña', icon: 'settings' },
 ];
 
 const NAV_EMPLEADO = [
@@ -1754,6 +1912,10 @@ function buildNav() {
     if (item.separator) return '<div class="nav-section-label">' + item.separator + '</div>';
     if (item.id === 'cambiar-planta') {
       return '<div class="nav-item" onclick="recargarYMostrarSelector()">' +
+        getIcon(item.icon) + '<span>' + item.label + '</span></div>';
+    }
+    if (item.id === 'cambiar-pass') {
+      return '<div class="nav-item" onclick="modalCambiarPassGestor()">' +
         getIcon(item.icon) + '<span>' + item.label + '</span></div>';
     }
     return '<div class="nav-item" id="nav-' + item.id + '" onclick="navigateTo(\'' + item.id + '\')">' +
